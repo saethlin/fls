@@ -5,9 +5,9 @@ authors = ["Ben Kimock <kimockb@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-termion = "1.5"
+termion = "1.0"
 rayon = "1.0"
-
+structopt = {version="0.2", default-features=false}
 
 [profile.release]
 lto = true
