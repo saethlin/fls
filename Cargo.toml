@@ -1,0 +1,14 @@
+[package]
+name = "fls"
+version = "0.1.0"
+authors = ["Ben Kimock <kimockb@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+termion = "1.5"
+rayon = "1.0"
+
+
+[profile.release]
+lto = true
+panic = 'abort'
