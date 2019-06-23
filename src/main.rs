@@ -112,34 +112,25 @@ impl RawDirEntry {
     }
 }
 
+// TODO: Reducing the number of escape sequences that's printed is worth ~10% perf
+// But right now there seems to be an alacritty bug with resetting colors after a newline
 fn print_entries<W: std::io::Write>(root: &mut Vec<u8>, out: &mut W) -> Result<(), std::io::Error> {
-    write!(out, "{}{}", Color::White, Style::Regular)?;
-
-    let mut previous_color = Color::White;
-    let mut previous_style = Style::Regular;
-
     let mut entries: Vec<_> = ReadDir::new(root)?.collect();
     entries.sort_by(|a, b| a.name.cmp(&b.name));
 
     for e in entries {
         let (color, style) = e.style(root)?;
-        if color != previous_color {
-            write!(out, "{}", color)?;
-            previous_color = color;
-        }
-        if style != previous_style {
-            write!(out, "{}", style)?;
-            previous_style = style;
-        }
+        write!(out, "{}{}", color, style)?;
         out.write_all(e.name())?;
+        write!(
+            out,
+            "{}{}",
+            termion::color::Fg(termion::color::Reset),
+            termion::style::Reset,
+        )?;
         out.write_all(b"\n")?;
     }
-    write!(
-        out,
-        "{}{}",
-        termion::color::Fg(termion::color::Reset),
-        termion::style::Reset
-    )
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
