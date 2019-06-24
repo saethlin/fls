@@ -122,11 +122,12 @@ fn write_grid<W: std::io::Write>(
     let mut entries: Vec<_> = ReadDir::new(root)?
         .filter(|e| e.name().get(0) != Some(&b'.'))
         .collect();
-    entries.sort_by_key(|a| {
+
+    entries.sort_by(|a, b| {
         a.name()
             .iter()
-            .map(|c| c.to_ascii_lowercase())
-            .collect::<SmallVec<[u8; 24]>>()
+            .map(u8::to_ascii_lowercase)
+            .cmp(b.name().iter().map(u8::to_ascii_lowercase))
     });
 
     let mut columns = 1;
@@ -187,11 +188,12 @@ fn write_single_column<W: std::io::Write>(root: &mut Vec<u8>, out: &mut W) -> st
     let mut entries: Vec<_> = ReadDir::new(root)?
         .filter(|e| e.name().get(0) != Some(&b'.'))
         .collect();
-    entries.sort_by_key(|a| {
+
+    entries.sort_by(|a, b| {
         a.name()
             .iter()
-            .map(|c| c.to_ascii_lowercase())
-            .collect::<SmallVec<[u8; 24]>>()
+            .map(u8::to_ascii_lowercase)
+            .cmp(b.name().iter().map(u8::to_ascii_lowercase))
     });
 
     for e in entries {
