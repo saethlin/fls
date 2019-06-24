@@ -114,20 +114,74 @@ impl RawDirEntry {
 
 // TODO: Reducing the number of escape sequences that's printed is worth ~10% perf
 // But right now there seems to be an alacritty bug with resetting colors after a newline
-fn print_entries<W: std::io::Write>(root: &mut Vec<u8>, out: &mut W) -> Result<(), std::io::Error> {
+fn write_grid<W: std::io::Write>(
+    root: &mut Vec<u8>,
+    out: &mut W,
+    terminal_width: usize,
+) -> Result<(), std::io::Error> {
+    let mut entries: Vec<_> = ReadDir::new(root)?.collect();
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut columns = 1;
+    let mut widths = match entries.iter().map(|e| e.name().len()).max() {
+        Some(max_len) => vec![max_len],
+        None => return Ok(()), // No entries, nothing to do here
+    };
+    for n_columns in 1..=entries.len() {
+        let mut tmp_widths = vec![0; n_columns];
+        let entries_per_column =
+            entries.len() / n_columns + ((entries.len() % n_columns != 0) as usize);
+        for (c, column) in entries.chunks(entries_per_column).enumerate() {
+            tmp_widths[c] = column
+                .iter()
+                .map(|entry| entry.name().len())
+                .max()
+                .unwrap_or(1)
+                + 2;
+        }
+        if tmp_widths.iter().sum::<usize>() > terminal_width as usize {
+            break;
+        } else {
+            columns = n_columns;
+            widths = tmp_widths;
+        }
+    }
+
+    let rows = entries.len() / columns + ((entries.len() % columns != 0) as usize);
+
+    for r in 0..rows {
+        for c in 0..columns {
+            if c * rows + r > entries.len() - 1 {
+                break;
+            }
+            let e = &entries[c * rows + r];
+
+            let (color, style) = e.style(root)?;
+            write!(out, "{}{}", color, style)?;
+            out.write_all(e.name())?;
+            write!(
+                out,
+                "{}{}",
+                termion::color::Fg(termion::color::Reset),
+                termion::style::Reset,
+            )?;
+
+            for _ in 0..widths[c] - e.name().len() {
+                out.write_all(b" ")?;
+            }
+        }
+        out.write_all(b"\n")?;
+    }
+
+    Ok(())
+}
+
+fn write_single_column<W: std::io::Write>(root: &mut Vec<u8>, out: &mut W) -> std::io::Result<()> {
     let mut entries: Vec<_> = ReadDir::new(root)?.collect();
     entries.sort_by(|a, b| a.name.cmp(&b.name));
 
     for e in entries {
-        let (color, style) = e.style(root)?;
-        write!(out, "{}{}", color, style)?;
         out.write_all(e.name())?;
-        write!(
-            out,
-            "{}{}",
-            termion::color::Fg(termion::color::Reset),
-            termion::style::Reset,
-        )?;
         out.write_all(b"\n")?;
     }
     Ok(())
@@ -138,13 +192,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut out = std::io::BufWriter::new(stdout.lock());
     let args = std::env::args();
 
+    let terminal_width = termion::terminal_size().map(|s| s.0 as usize);
+
     if args.len() < 2 {
         let mut root = vec![b'.'];
-        print_entries(&mut root, &mut out)?;
+        if let Ok(width) = terminal_width {
+            write_grid(&mut root, &mut out, width)?;
+        } else {
+            write_single_column(&mut root, &mut out)?;
+        }
     } else {
         for arg in args.skip(1) {
             let mut root = arg.into_bytes();
-            print_entries(&mut root, &mut out)?;
+            if let Ok(width) = terminal_width {
+                write_grid(&mut root, &mut out, width)?;
+            } else {
+                write_single_column(&mut root, &mut out)?;
+            }
         }
     }
 
