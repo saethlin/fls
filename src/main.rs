@@ -119,8 +119,15 @@ fn write_grid<W: std::io::Write>(
     out: &mut W,
     terminal_width: usize,
 ) -> Result<(), std::io::Error> {
-    let mut entries: Vec<_> = ReadDir::new(root)?.collect();
-    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut entries: Vec<_> = ReadDir::new(root)?
+        .filter(|e| e.name().get(0) != Some(&b'.'))
+        .collect();
+    entries.sort_by_key(|a| {
+        a.name()
+            .iter()
+            .map(|c| c.to_ascii_lowercase())
+            .collect::<SmallVec<[u8; 24]>>()
+    });
 
     let mut columns = 1;
     let mut widths = match entries.iter().map(|e| e.name().len()).max() {
@@ -151,10 +158,10 @@ fn write_grid<W: std::io::Write>(
 
     for r in 0..rows {
         for c in 0..columns {
-            if c * rows + r > entries.len() - 1 {
-                break;
-            }
-            let e = &entries[c * rows + r];
+            let e = match entries.get(c * rows + r) {
+                Some(e) => e,
+                None => break,
+            };
 
             let (color, style) = e.style(root)?;
             write!(out, "{}{}", color, style)?;
@@ -177,8 +184,15 @@ fn write_grid<W: std::io::Write>(
 }
 
 fn write_single_column<W: std::io::Write>(root: &mut Vec<u8>, out: &mut W) -> std::io::Result<()> {
-    let mut entries: Vec<_> = ReadDir::new(root)?.collect();
-    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut entries: Vec<_> = ReadDir::new(root)?
+        .filter(|e| e.name().get(0) != Some(&b'.'))
+        .collect();
+    entries.sort_by_key(|a| {
+        a.name()
+            .iter()
+            .map(|c| c.to_ascii_lowercase())
+            .collect::<SmallVec<[u8; 24]>>()
+    });
 
     for e in entries {
         out.write_all(e.name())?;
