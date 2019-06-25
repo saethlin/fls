@@ -1,3 +1,37 @@
+#![feature(lang_items)]
+#![feature(start, alloc_error_handler)]
+#![no_std]
+#![no_main]
+
+extern crate alloc;
+use alloc::vec;
+use alloc::vec::Vec;
+use arrayvec::ArrayVec;
+
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+
+#[lang = "eh_personality"]
+#[no_mangle]
+pub extern "C" fn rust_eh_personality() {}
+
+#[lang = "eh_unwind_resume"]
+#[no_mangle]
+pub extern "C" fn rust_eh_unwind_resume() {}
+
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    loop {}
+}
+
+#[alloc_error_handler]
+fn alloc_error(_: core::alloc::Layout) -> ! {
+    loop {}
+}
+
+mod error;
+
+use error::Error;
 use smallvec::SmallVec;
 
 struct ReadDir {
@@ -5,14 +39,14 @@ struct ReadDir {
 }
 
 impl ReadDir {
-    fn new(path: &mut Vec<u8>) -> Result<Self, std::io::Error> {
+    fn new(path: &mut ArrayVec<[u8; libc::PATH_MAX as usize]>) -> Result<Self, Error> {
         if path.last() != Some(&0) {
             path.push(0);
         }
         unsafe {
             let dir = libc::opendir(path.as_ptr() as *const i8);
             if dir.is_null() {
-                Err(std::io::Error::last_os_error())
+                Err(Error::last_os_error())
             } else {
                 Ok(Self { dir })
             }
@@ -20,7 +54,7 @@ impl ReadDir {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 enum DType {
     Fifo = 1,
     Character = 2,
@@ -31,7 +65,6 @@ enum DType {
     Socket = 12,
 }
 
-#[derive(Debug)]
 struct RawDirEntry {
     name: SmallVec<[u8; 24]>,
     d_type: Option<DType>,
@@ -75,21 +108,26 @@ impl RawDirEntry {
         &self.name
     }
 
-    fn style(&self, root: &mut Vec<u8>) -> Result<(Color, Style), std::io::Error> {
+    fn style(
+        &self,
+        root: &mut ArrayVec<[u8; libc::PATH_MAX as usize]>,
+    ) -> Result<(Color, Style), Error> {
         use Color::*;
         use Style::*;
         while root.last() == Some(&0) {
             root.pop();
         }
-        match self.d_type.unwrap() {
-            DType::Directory => Ok((Blue, Bold)),
-            DType::Symlink => Ok((Cyan, Bold)),
-            DType::Regular => unsafe {
+        match self.d_type {
+            Some(DType::Directory) => Ok((Blue, Bold)),
+            Some(DType::Symlink) => Ok((Cyan, Bold)),
+            Some(DType::Regular) => unsafe {
                 if root.last() != Some(&b'/') {
                     root.push(b'/');
                 }
-                root.extend(&self.name);
-                root.push(0);
+                for b in &self.name {
+                    root.try_push(*b)?;
+                }
+                root.try_push(0)?;
                 let executable = libc::access(root.as_ptr() as *const i8, libc::X_OK);
                 while root.last() != Some(&b'/') {
                     root.pop();
@@ -103,7 +141,7 @@ impl RawDirEntry {
                         Ok((White, Regular))
                     } else {
                         // Something went wrong
-                        Err(std::io::Error::last_os_error())
+                        Err(Error::last_os_error())
                     }
                 }
             },
@@ -114,14 +152,15 @@ impl RawDirEntry {
 
 // TODO: Reducing the number of escape sequences that's printed is worth ~10% perf
 // But right now there seems to be an alacritty bug with resetting colors after a newline
-fn write_grid<W: std::io::Write>(
-    root: &mut Vec<u8>,
-    out: &mut W,
+fn write_grid(
+    root: &mut ArrayVec<[u8; libc::PATH_MAX as usize]>,
+    out: &mut BufferedStdout,
     terminal_width: usize,
-) -> Result<(), std::io::Error> {
-    let mut entries: Vec<_> = ReadDir::new(root)?
-        .filter(|e| e.name().get(0) != Some(&b'.'))
-        .collect();
+) -> Result<(), Error> {
+    let mut entries = Vec::new();
+    for e in ReadDir::new(root)?.filter(|e| e.name().get(0) != Some(&b'.')) {
+        entries.push(e)
+    }
 
     entries.sort_by(|a, b| {
         a.name()
@@ -158,23 +197,20 @@ fn write_grid<W: std::io::Write>(
     let rows = entries.len() / columns + ((entries.len() % columns != 0) as usize);
 
     for r in 0..rows {
-        for c in 0..columns {
+        for (c, width) in widths.iter().enumerate() {
             let e = match entries.get(c * rows + r) {
                 Some(e) => e,
                 None => break,
             };
 
             let (color, style) = e.style(root)?;
-            write!(out, "{}{}", color, style)?;
+            out.write_all(color.as_ref())?;
+            out.write_all(style.as_ref())?;
             out.write_all(e.name())?;
-            write!(
-                out,
-                "{}{}",
-                termion::color::Fg(termion::color::Reset),
-                termion::style::Reset,
-            )?;
+            out.write_all(Style::Regular.as_ref())?;
+            //out.write_all(&termion::style::Reset.as_ref())?;
 
-            for _ in 0..widths[c] - e.name().len() {
+            for _ in 0..width - e.name().len() {
                 out.write_all(b" ")?;
             }
         }
@@ -184,10 +220,14 @@ fn write_grid<W: std::io::Write>(
     Ok(())
 }
 
-fn write_single_column<W: std::io::Write>(root: &mut Vec<u8>, out: &mut W) -> std::io::Result<()> {
-    let mut entries: Vec<_> = ReadDir::new(root)?
-        .filter(|e| e.name().get(0) != Some(&b'.'))
-        .collect();
+fn write_single_column(
+    root: &mut ArrayVec<[u8; libc::PATH_MAX as usize]>,
+    out: &mut BufferedStdout,
+) -> Result<(), Error> {
+    let mut entries = Vec::new();
+    for e in ReadDir::new(root)?.filter(|e| e.name().get(0) != Some(&b'.')) {
+        entries.push(e)
+    }
 
     entries.sort_by(|a, b| {
         a.name()
@@ -203,23 +243,55 @@ fn write_single_column<W: std::io::Write>(root: &mut Vec<u8>, out: &mut W) -> st
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let stdout = std::io::stdout();
-    let mut out = std::io::BufWriter::new(stdout.lock());
-    let args = std::env::args();
+#[no_mangle] // ensure that this symbol is called `main` in the output
+pub extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
+    match run(argc, argv) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
 
-    let terminal_width = termion::terminal_size().map(|s| s.0 as usize);
+fn run(argc: i32, argv: *const *const u8) -> Result<(), Error> {
+    let mut out = BufferedStdout {
+        buf: Default::default(),
+    };
 
-    if args.len() < 2 {
-        let mut root = vec![b'.'];
+    let terminal_width = unsafe {
+        let mut winsize = libc::winsize {
+            ws_row: 0,
+            ws_col: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        if libc::ioctl(1, libc::TIOCGWINSZ, &mut winsize as *mut libc::winsize) == -1 {
+            Err(Error::last_os_error())
+        } else {
+            Ok(winsize.ws_col as usize)
+        }
+    };
+
+    let mut root: ArrayVec<[u8; libc::PATH_MAX as usize]> = ArrayVec::new();
+    if argc < 2 {
+        root.push(b'.');
         if let Ok(width) = terminal_width {
             write_grid(&mut root, &mut out, width)?;
         } else {
             write_single_column(&mut root, &mut out)?;
         }
     } else {
-        for arg in args.skip(1) {
-            let mut root = arg.into_bytes();
+        for a in 1..argc {
+            root.clear();
+            unsafe {
+                let mut arg: *const u8 = *argv.offset(a as isize);
+                loop {
+                    let b = *arg;
+                    root.push(b);
+                    if b == 0 {
+                        break;
+                    }
+                    arg = arg.offset(1);
+                }
+            }
             if let Ok(width) = terminal_width {
                 write_grid(&mut root, &mut out, width)?;
             } else {
@@ -231,22 +303,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Color {
-    White,
-    Cyan,
-    Blue,
+    //Red,
     Green,
+    //Yellow,
+    Blue,
+    //Magenta,
+    Cyan,
+    White,
 }
 
-impl std::fmt::Display for Color {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use termion::color::{Blue, Cyan, Fg, Green, White};
+impl AsRef<[u8]> for Color {
+    fn as_ref(&self) -> &'static [u8] {
         match self {
-            Color::White => write!(f, "{}", Fg(White)),
-            Color::Cyan => write!(f, "{}", Fg(Cyan)),
-            Color::Blue => write!(f, "{}", Fg(Blue)),
-            Color::Green => write!(f, "{}", Fg(Green)),
+            //Color::Red => b"\x1B[31m",
+            Color::Green => b"\x1B[32m",
+            //Color::Yellow => b"\x1B[33m",
+            Color::Blue => b"\x1B[34m",
+            //Color::Magenta => b"\x1B[35m",
+            Color::Cyan => b"\x1B[36m",
+            Color::White => b"\x1B[37m",
         }
     }
 }
@@ -257,12 +334,60 @@ enum Style {
     Bold,
 }
 
-impl std::fmt::Display for Style {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use termion::style::{Bold, NoBold};
+impl AsRef<[u8]> for Style {
+    fn as_ref(&self) -> &'static [u8] {
         match self {
-            Style::Regular => write!(f, "{}", NoBold),
-            Style::Bold => write!(f, "{}", Bold),
+            Style::Regular => b"\x1B[m",
+            Style::Bold => b"\x1B[1m",
+        }
+    }
+}
+
+struct BufferedStdout {
+    buf: arrayvec::ArrayVec<[u8; 1024]>,
+}
+
+impl BufferedStdout {
+    fn write_all(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        for b in bytes {
+            if let Err(_) = self.buf.try_push(*b) {
+                // write everything in the buffer to stdout
+                unsafe {
+                    let mut bytes_written = 0;
+                    while bytes_written < self.buf.len() {
+                        let ret = libc::write(
+                            libc::STDOUT_FILENO,
+                            (&self.buf[bytes_written..]).as_ptr() as *const libc::c_void,
+                            self.buf.len() - bytes_written as usize,
+                        );
+                        if ret == -1 {
+                            return Err(Error::last_os_error());
+                        } else {
+                            bytes_written += ret as usize;
+                        }
+                    }
+                }
+                self.buf.clear();
+                unsafe {
+                    self.buf.push_unchecked(*b);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for BufferedStdout {
+    fn drop(&mut self) {
+        unsafe {
+            let mut bytes_written = 0;
+            while bytes_written < self.buf.len() {
+                bytes_written += libc::write(
+                    libc::STDOUT_FILENO,
+                    (&self.buf[bytes_written..]).as_ptr() as *const libc::c_void,
+                    self.buf.len() - bytes_written as usize,
+                ) as usize;
+            }
         }
     }
 }
