@@ -1,13 +1,13 @@
-pub struct Error(libc::c_int);
+pub struct Error(pub i32);
 
-impl Error {
-    pub fn last_os_error() -> Self {
-        Error(unsafe { *libc::__errno_location() })
+impl<T> From<arrayvec::CapacityError<T>> for Error {
+    fn from(_e: arrayvec::CapacityError<T>) -> Error {
+        Error(0)
     }
 }
 
-impl<T> From<arrayvec::CapacityError<T>> for Error {
-    fn from(e: arrayvec::CapacityError<T>) -> Error {
-        Error(0)
+impl From<i32> for Error {
+    fn from(e: i32) -> Error {
+        Error(e)
     }
 }
