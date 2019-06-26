@@ -1,13 +1,6 @@
 #![no_std]
-#![feature(lang_items)]
-#![feature(start, alloc_error_handler)]
 #![no_main]
-
-extern crate alloc;
-use arrayvec::ArrayVec;
-
-#[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+#![feature(lang_items, alloc_error_handler)]
 
 #[lang = "eh_personality"]
 #[no_mangle]
@@ -27,6 +20,12 @@ fn alloc_error(_: core::alloc::Layout) -> ! {
     loop {}
 }
 
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+
+extern crate alloc;
+use arrayvec::ArrayVec;
+
 mod directory;
 mod error;
 mod output;
@@ -34,7 +33,7 @@ use output::*;
 
 use error::Error;
 
-#[no_mangle] // ensure that this symbol is called `main` in the output
+#[no_mangle]
 pub extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
     match run(argc, argv) {
         Ok(()) => 0,
