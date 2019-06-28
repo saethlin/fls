@@ -118,12 +118,16 @@ impl BufferedStdout {
             if let Err(_) = self.buf.try_push(*b) {
                 write_to_stdout(&self.buf)?;
                 self.buf.clear();
-                unsafe {
-                    self.buf.push_unchecked(*b);
-                }
+                self.buf.push(*b);
             }
         }
         Ok(())
+    }
+}
+
+impl Drop for BufferedStdout {
+    fn drop(&mut self) {
+        let _ = write_to_stdout(&self.buf);
     }
 }
 
@@ -145,10 +149,4 @@ fn write_to_stdout(bytes: &[u8]) -> Result<(), i32> {
         }
     }
     Ok(())
-}
-
-impl Drop for BufferedStdout {
-    fn drop(&mut self) {
-        let _ = write_to_stdout(&self.buf);
-    }
 }

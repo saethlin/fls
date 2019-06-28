@@ -20,18 +20,21 @@ fn alloc_error(_: core::alloc::Layout) -> ! {
     loop {}
 }
 
-#[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-
 extern crate alloc;
-use arrayvec::ArrayVec;
 
+mod allocator;
 mod directory;
 mod error;
 mod output;
+
+use arrayvec::ArrayVec;
+
+use allocator::MyAllocator;
+use error::Error;
 use output::*;
 
-use error::Error;
+#[global_allocator]
+static ALLOC: MyAllocator = MyAllocator::new();
 
 #[no_mangle]
 pub extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
@@ -54,7 +57,7 @@ fn run(argc: i32, argv: *const *const u8) -> Result<(), Error> {
         }
     };
 
-    let mut root: ArrayVec<[u8; 4096 as usize]> = ArrayVec::new();
+    let mut root: ArrayVec<[u8; 1024 as usize]> = ArrayVec::new();
     if argc < 2 {
         root.try_push(b'.')?;
         root.try_push(0)?;
