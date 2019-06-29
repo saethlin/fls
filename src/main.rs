@@ -22,19 +22,17 @@ fn alloc_error(_: core::alloc::Layout) -> ! {
 
 extern crate alloc;
 
-mod allocator;
 mod directory;
 mod error;
 mod output;
 
 use arrayvec::ArrayVec;
 
-use allocator::MyAllocator;
 use error::Error;
 use output::*;
 
 #[global_allocator]
-static ALLOC: MyAllocator = MyAllocator::new();
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[no_mangle]
 pub extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {

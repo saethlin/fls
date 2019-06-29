@@ -153,12 +153,19 @@ impl<'a> DirEntry<'a> {
     pub fn style(&self) -> Result<Style, Error> {
         match self.d_type {
             Some(DType::Directory) => Ok(Style::Directory),
-            Some(DType::Symlink) => Ok(Style::Symlink),
+            Some(DType::Symlink) => unsafe {
+                let ret = syscall!(FACCESSAT, self.directory.fd, self.name.as_ptr(), 0) as i32;
+                match ret {
+                    0 => Ok(Style::Symlink),
+                    -2 => Ok(Style::BrokenSymlink), // ENOENT, symlink is broken
+                    _ => Err(Error(ret)),
+                }
+            },
             Some(DType::Regular) => unsafe {
                 let ret = syscall!(FACCESSAT, self.directory.fd, self.name.as_ptr(), 1) as i32;
                 match ret {
                     0 => Ok(Style::Executable),
-                    -13 => Ok(Style::Regular), // EACCESS, so we're not allowed to execute
+                    -13 => Ok(style_for(self.name())), // EACCESS, so we're not allowed to execute
                     _ => Err(Error(ret)),
                 }
             },
@@ -167,12 +174,35 @@ impl<'a> DirEntry<'a> {
     }
 }
 
+fn style_for(name: &[u8]) -> Style {
+    let extension = match name.rsplit(|b| *b == b'.').next() {
+        None => return Style::Regular,
+        Some(ext) => ext,
+    };
+    let compressed: [&'static [u8]; 2] = [b"tar", b"gz"];
+    let document: [&'static [u8]; 2] = [b"pdf", b"eps"];
+    let media: [&'static [u8]; 2] = [b"png", b"mp4"];
+    if compressed.contains(&extension) {
+        Style::Compressed
+    } else if document.contains(&extension) {
+        Style::Document
+    } else if media.contains(&extension) {
+        Style::Media
+    } else {
+        Style::Regular
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Style {
     Regular,
     Directory,
     Executable,
+    BrokenSymlink,
     Symlink,
+    Compressed,
+    Document,
+    Media,
 }
 
 impl AsRef<[u8]> for Style {
@@ -181,7 +211,11 @@ impl AsRef<[u8]> for Style {
             Style::Regular => b"\x1B[m",
             Style::Directory => b"\x1B[1;34m",
             Style::Executable => b"\x1B[1;32m",
-            Style::Symlink => b"\x1B[1;36m",
+            Style::Symlink => b"\x1B[0;36m",
+            Style::BrokenSymlink => b"\x1B[0;31m",
+            Style::Compressed => b"\x1B[0;31m",
+            Style::Document => b"\x1B[0;38;5;105m",
+            Style::Media => b"\x1B[0;38;5;133m",
         }
     }
 }

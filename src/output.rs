@@ -55,6 +55,7 @@ pub fn write_grid(
     let rows = entries.len() / columns + ((entries.len() % columns != 0) as usize);
 
     let mut previous_style = Style::Regular;
+    out.write_all(previous_style.as_ref())?;
 
     for r in 0..rows {
         for (c, width) in widths.iter().enumerate() {
