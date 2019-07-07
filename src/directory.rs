@@ -1,4 +1,5 @@
 use crate::error::Error;
+use crate::style::Style;
 
 use smallvec::SmallVec;
 use syscall::syscall;
@@ -156,56 +157,43 @@ impl<'a> DirEntry<'a> {
 
     pub fn style(&self) -> Result<Style, Error> {
         match self.d_type {
-            Some(DType::Directory) => Ok(Style::Directory),
+            Some(DType::Directory) => Ok(Style::BlueBold),
             Some(DType::Symlink) => unsafe {
                 let ret = syscall!(FACCESSAT, self.directory.fd, self.name.as_ptr(), 0) as i32;
                 match ret {
-                    0 => Ok(Style::Symlink),
-                    -2 => Ok(Style::BrokenSymlink), // ENOENT, symlink is broken
+                    0 => Ok(Style::CyanBold),
+                    -2 => Ok(Style::RedBold), // ENOENT, symlink is broken
                     _ => Err(Error(ret)),
                 }
             },
             Some(DType::Regular) => unsafe {
                 let ret = syscall!(FACCESSAT, self.directory.fd, self.name.as_ptr(), 1) as i32;
                 match ret {
-                    0 => Ok(Style::Executable),
+                    0 => Ok(Style::GreenBold),
                     -13 => Ok(style_for(self.name())), // EACCESS, so we're not allowed to execute
                     _ => Err(Error(ret)),
                 }
             },
-            _ => Ok(Style::Regular),
+            _ => Ok(Style::White),
         }
     }
 }
 
 fn style_for(name: &[u8]) -> Style {
     let extension = match name.rsplit(|b| *b == b'.').next() {
-        None => return Style::Regular,
+        None => return Style::White,
         Some(ext) => ext,
     };
-    let compressed: [&'static [u8]; 2] = [b"tar", b"gz"];
-    let document: [&'static [u8]; 2] = [b"pdf", b"eps"];
-    let media: [&'static [u8]; 2] = [b"png", b"mp4"];
+    let compressed: &[&[u8]] = &[b"tar", b"gz", b"tgz"];
+    let document: &[&[u8]] = &[b"pdf", b"eps"];
+    let media: &[&[u8]] = &[b"png", b"mp4"];
     if compressed.contains(&extension) {
-        Style::Compressed
+        Style::Red
     } else if document.contains(&extension) {
-        Style::Document
+        Style::Magenta
     } else if media.contains(&extension) {
-        Style::Media
+        Style::Magenta
     } else {
-        Style::Regular
+        Style::White
     }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Style {
-    Regular,
-    Directory,
-    Executable,
-    BrokenSymlink,
-    Symlink,
-    Compressed,
-    Document,
-    Media,
-    Yellow,
 }

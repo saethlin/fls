@@ -26,9 +26,12 @@ use alloc::vec::Vec;
 mod directory;
 mod error;
 mod output;
+mod style;
 
+use directory::Directory;
 use error::Error;
 use output::*;
+use style::Style;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;

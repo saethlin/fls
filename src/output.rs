@@ -1,5 +1,4 @@
-use crate::directory::{Directory, Style};
-use crate::Error;
+use crate::{Directory, Error, Style};
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -53,34 +52,34 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
         let mode = stats.st_mode;
 
         if mode & S_IFDIR > 0 {
-            out.style(Style::Directory)?;
+            out.style(Style::BlueBold)?;
             out.push(b'd')?;
         } else {
-            out.style(Style::Regular)?;
+            out.style(Style::White)?;
             out.push(b'.')?;
         }
 
         if mode & S_IRUSR > 0 {
-            out.style(Style::Yellow)?;
+            out.style(Style::YellowBold)?;
             out.push(b'r')?;
         } else {
-            out.style(Style::Regular)?;
+            out.style(Style::White)?;
             out.push(b'-')?;
         }
 
         if mode & S_IWUSR > 0 {
-            out.style(Style::BrokenSymlink)?;
+            out.style(Style::RedBold)?;
             out.push(b'w')?;
         } else {
-            out.style(Style::Regular)?;
+            out.style(Style::White)?;
             out.push(b'-')?;
         }
 
         if mode & S_IXUSR > 0 {
-            out.style(Style::Executable)?;
+            out.style(Style::GreenBold)?;
             out.push(b'x')?;
         } else {
-            out.style(Style::Regular)?;
+            out.style(Style::White)?;
             out.push(b'-')?;
         }
 
@@ -88,23 +87,23 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
             out.style(Style::Yellow)?;
             out.push(b'r')?;
         } else {
-            out.style(Style::Regular)?;
+            out.style(Style::White)?;
             out.push(b'-')?;
         }
 
         if mode & S_IWGRP > 0 {
-            out.style(Style::BrokenSymlink)?;
+            out.style(Style::Red)?;
             out.push(b'w')?;
         } else {
-            out.style(Style::Regular)?;
+            out.style(Style::White)?;
             out.push(b'-')?;
         }
 
         if mode & S_IXGRP > 0 {
-            out.style(Style::Executable)?;
+            out.style(Style::Green)?;
             out.push(b'x')?;
         } else {
-            out.style(Style::Regular)?;
+            out.style(Style::White)?;
             out.push(b'-')?;
         }
 
@@ -112,28 +111,28 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
             out.style(Style::Yellow)?;
             out.push(b'r')?;
         } else {
-            out.style(Style::Regular)?;
+            out.style(Style::White)?;
             out.push(b'-')?;
         }
 
         if mode & S_IWOTH > 0 {
-            out.style(Style::BrokenSymlink)?;
+            out.style(Style::Red)?;
             out.push(b'w')?;
         } else {
-            out.style(Style::Regular)?;
+            out.style(Style::White)?;
             out.push(b'-')?;
         }
 
         if mode & S_IXOTH > 0 {
-            out.style(Style::Executable)?;
+            out.style(Style::Green)?;
             out.push(b'x')?;
         } else {
-            out.style(Style::Regular)?;
+            out.style(Style::White)?;
             out.push(b'-')?;
         }
 
         out.push(b' ')?;
-        out.style(Style::Regular)?;
+        out.style(Style::GreenBold)?;
 
         use libm::F32Ext;
 
@@ -145,22 +144,49 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
             out.write(b"    ")?;
         } else if stats.st_size > gigabyte {
             let mut buf = itoa::Buffer::new();
+            let converted = (stats.st_size as f32) / gigabyte as f32;
             let size = buf
                 .format(((stats.st_size as f32) / gigabyte as f32 * 10.).round() as u32)
                 .as_bytes();
-            out.write(&[size[0], b'.', size[1], b'G'])?;
+            if converted < 10. {
+                out.write(&[size[0], b'.', size[1]])?;
+            } else if converted < 100. {
+                out.push(b' ')?;
+                out.write(&size[..2])?;
+            } else {
+                out.write(&size[..3])?;
+            }
+            out.push(b'G')?;
         } else if stats.st_size > 1_000_000 {
             let mut buf = itoa::Buffer::new();
+            let converted = (stats.st_size as f32) / megabyte as f32;
             let size = buf
                 .format(((stats.st_size as f32) / megabyte as f32 * 10.).round() as u32)
                 .as_bytes();
-            out.write(&[size[0], b'.', size[1], b'M'])?;
+            if converted < 10. {
+                out.write(&[size[0], b'.', size[1]])?;
+            } else if converted < 100. {
+                out.push(b' ')?;
+                out.write(&size[..2])?;
+            } else {
+                out.write(&size[..3])?;
+            }
+            out.push(b'M')?;
         } else if stats.st_size > 1_000 {
             let mut buf = itoa::Buffer::new();
+            let converted = (stats.st_size as f32) / kilobyte as f32;
             let size = buf
                 .format(((stats.st_size as f32) / kilobyte as f32 * 10.).round() as u32)
                 .as_bytes();
-            out.write(&[size[0], b'.', size[1], b'K'])?;
+            if converted < 10. {
+                out.write(&[size[0], b'.', size[1]])?;
+            } else if converted < 100. {
+                out.push(b' ')?;
+                out.write(&size[..2])?;
+            } else {
+                out.write(&size[..3])?;
+            }
+            out.push(b'K')?;
         } else {
             let mut buf = itoa::Buffer::new();
             let size = buf.format(stats.st_size);
@@ -171,9 +197,25 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
         }
         out.push(b' ')?;
 
+        out.style(Style::YellowBold)?;
+        unsafe {
+            let pw = libc::getpwuid(stats.st_uid);
+            let name = (*pw).pw_name;
+            let mut offset = 0;
+            loop {
+                let c = *name.offset(offset);
+                if c == 0 {
+                    break;
+                }
+                out.push(c as u8)?;
+                offset += 1;
+            }
+        }
+        out.push(b' ')?;
+
         out.style(e.style()?)?;
         out.write(e.name())?;
-        out.style(Style::Regular)?;
+        out.style(Style::Reset)?;
         out.push(b'\n')?;
     }
     Ok(())
@@ -273,10 +315,9 @@ pub fn write_grid(
                 out.push(b' ')?;
             }
         }
+        out.style(Style::Reset)?;
         out.push(b'\n')?;
     }
-    out.style(Style::Regular)?;
-
     Ok(())
 }
 
@@ -339,7 +380,7 @@ impl BufferedStdout {
     pub fn new() -> Self {
         Self {
             buf: arrayvec::ArrayVec::new(),
-            style: Style::Regular,
+            style: Style::Reset,
         }
     }
 
@@ -365,18 +406,7 @@ impl BufferedStdout {
 
     pub fn style(&mut self, style: Style) -> Result<(), Error> {
         if self.style != style {
-            let bytes: &[u8] = match style {
-                Style::Regular => b"\x1B[m",
-                Style::Directory => b"\x1B[1;34m",
-                Style::Executable => b"\x1B[1;32m",
-                Style::Symlink => b"\x1B[0;36m",
-                Style::BrokenSymlink => b"\x1B[0;31m",
-                Style::Compressed => b"\x1B[0;31m",
-                Style::Document => b"\x1B[0;38;5;105m",
-                Style::Media => b"\x1B[0;38;5;133m",
-                Style::Yellow => b"\x1B[1;33m",
-            };
-            self.write(bytes)?;
+            self.write(style.to_bytes())?;
             self.style = style;
         }
         Ok(())
