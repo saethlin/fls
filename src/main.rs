@@ -21,12 +21,11 @@ fn alloc_error(_: core::alloc::Layout) -> ! {
 }
 
 extern crate alloc;
+use alloc::vec::Vec;
 
 mod directory;
 mod error;
 mod output;
-
-use arrayvec::ArrayVec;
 
 use error::Error;
 use output::*;
@@ -36,13 +35,22 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[no_mangle]
 pub extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
-    match run(argc, argv) {
+    let mut args = Vec::with_capacity(argc as usize);
+    unsafe {
+        for i in 0..argc {
+            let ptr = *argv.offset(i as isize);
+            let arg = core::slice::from_raw_parts(ptr, cstr_len(ptr) + 1);
+            args.push(arg);
+        }
+    }
+
+    match run(&args) {
         Ok(()) => 0,
         Err(e) => e.0,
     }
 }
 
-fn run(argc: i32, argv: *const *const u8) -> Result<(), Error> {
+fn run(args: &[&[u8]]) -> Result<(), Error> {
     let mut out = BufferedStdout::new();
 
     let terminal_width = unsafe {
@@ -55,42 +63,45 @@ fn run(argc: i32, argv: *const *const u8) -> Result<(), Error> {
         }
     };
 
-    let mut root: ArrayVec<[u8; 1024 as usize]> = ArrayVec::new();
-    if argc < 2 {
-        root.try_push(b'.')?;
-        root.try_push(0)?;
-        if let Ok(width) = terminal_width {
-            write_grid(&root, &mut out, width)?;
+    let options: Vec<_> = args
+        .iter()
+        .skip(1)
+        .take_while(|a| a.get(0) == Some(&b'-'))
+        .collect();
+
+    let mut args: Vec<_> = args
+        .iter()
+        .skip(1)
+        .skip_while(|a| a.get(0) == Some(&b'-'))
+        .collect();
+    let cwd = &b".\0"[..];
+    if args.is_empty() {
+        args.push(&cwd);
+    }
+
+    if let Ok(width) = terminal_width {
+        if options.iter().any(|opt| *opt == b"-l\0") {
+            for arg in args.into_iter() {
+                write_details(arg, &mut out)?;
+            }
         } else {
-            write_single_column(&root, &mut out)?;
+            for arg in args.into_iter() {
+                write_grid(arg, &mut out, width)?;
+            }
         }
     } else {
-        for a in 1..argc {
-            root.clear();
-            unsafe {
-                let mut arg: *const u8 = *argv.offset(a as isize);
-                loop {
-                    let b = *arg;
-                    if b == 0 {
-                        break;
-                    }
-                    root.try_push(b)?;
-                    arg = arg.offset(1);
-                }
-            }
-            out.write_all(&root)?;
-            out.write_all(b":\n")?;
-            root.try_push(0)?;
-            if let Ok(width) = terminal_width {
-                write_grid(&root, &mut out, width)?;
-            } else {
-                write_single_column(&root, &mut out)?;
-            }
-            if a != argc - 1 {
-                out.write_all(b"\n")?;
-            }
+        for arg in args.into_iter() {
+            write_single_column(arg, &mut out)?;
         }
     }
 
     Ok(())
+}
+
+unsafe fn cstr_len(cstr: *const u8) -> usize {
+    let mut len = 0;
+    while *cstr.offset(len as isize) != 0 {
+        len += 1
+    }
+    len
 }

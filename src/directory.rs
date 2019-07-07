@@ -146,6 +146,10 @@ pub enum DType {
 }
 
 impl<'a> DirEntry<'a> {
+    pub fn name_with_nul(&self) -> &[u8] {
+        &self.name
+    }
+
     pub fn name(&self) -> &[u8] {
         &self.name[..self.name.len() - 1]
     }
@@ -203,19 +207,5 @@ pub enum Style {
     Compressed,
     Document,
     Media,
-}
-
-impl AsRef<[u8]> for Style {
-    fn as_ref(&self) -> &'static [u8] {
-        match self {
-            Style::Regular => b"\x1B[m",
-            Style::Directory => b"\x1B[1;34m",
-            Style::Executable => b"\x1B[1;32m",
-            Style::Symlink => b"\x1B[0;36m",
-            Style::BrokenSymlink => b"\x1B[0;31m",
-            Style::Compressed => b"\x1B[0;31m",
-            Style::Document => b"\x1B[0;38;5;105m",
-            Style::Media => b"\x1B[0;38;5;133m",
-        }
-    }
+    Yellow,
 }

@@ -5,10 +5,14 @@ authors = ["Ben Kimock <kimockb@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+libc = "0.2"
 syscall = "0.2"
 smallvec = {version = "0.6", default-features = false}
 arrayvec = {version = "0.4", default-features = false}
 wee_alloc = "0.4"
+itoa = {version = "0.4", default-features = false}
+libm = "0.1"
+chrono = {git = "https://github.com/simonvandel/chrono"}
 
 [profile.release]
 lto = "fat"
