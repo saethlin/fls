@@ -12,7 +12,6 @@ arrayvec = {version = "0.4", default-features = false}
 wee_alloc = "0.4"
 itoa = {version = "0.4", default-features = false}
 libm = "0.1"
-#chrono = {git = "https://github.com/simonvandel/chrono"}
 
 [profile.release]
 lto = "fat"

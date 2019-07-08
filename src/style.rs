@@ -8,6 +8,7 @@ pub enum Style {
     Magenta,
     Cyan,
     White,
+    Gray,
     RedBold,
     GreenBold,
     YellowBold,
@@ -29,6 +30,7 @@ impl Style {
             Magenta => b"\x1B[0;35m",
             Cyan => b"\x1B[0;36m",
             White => b"\x1B[0;37m",
+            Gray => b"\x1B[0;38;5;244m",
             RedBold => b"\x1B[1;31m",
             GreenBold => b"\x1B[1;32m",
             YellowBold => b"\x1B[1;33m",
@@ -37,18 +39,5 @@ impl Style {
             CyanBold => b"\x1B[1;36m",
             WhiteBold => b"\x1B[1;37m",
         }
-        /*
-        match self {
-            Regular => b"\x1B[m",
-            Directory => b"\x1B[1;34m",
-            Executable => b"\x1B[1;32m",
-            Symlink => b"\x1B[0;36m",
-            BrokenSymlink => b"\x1B[0;31m",
-            Compressed => b"\x1B[0;31m",
-            Document => b"\x1B[0;38;5;105m",
-            Media => b"\x1B[0;38;5;133m",
-            Yellow => b"\x1B[1;33m",
-        }
-        */
     }
 }

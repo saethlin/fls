@@ -63,7 +63,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
             out.style(Style::YellowBold)?;
             out.push(b'r')?;
         } else {
-            out.style(Style::White)?;
+            out.style(Style::Gray)?;
             out.push(b'-')?;
         }
 
@@ -71,7 +71,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
             out.style(Style::RedBold)?;
             out.push(b'w')?;
         } else {
-            out.style(Style::White)?;
+            out.style(Style::Gray)?;
             out.push(b'-')?;
         }
 
@@ -79,7 +79,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
             out.style(Style::GreenBold)?;
             out.push(b'x')?;
         } else {
-            out.style(Style::White)?;
+            out.style(Style::Gray)?;
             out.push(b'-')?;
         }
 
@@ -87,7 +87,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
             out.style(Style::Yellow)?;
             out.push(b'r')?;
         } else {
-            out.style(Style::White)?;
+            out.style(Style::Gray)?;
             out.push(b'-')?;
         }
 
@@ -95,7 +95,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
             out.style(Style::Red)?;
             out.push(b'w')?;
         } else {
-            out.style(Style::White)?;
+            out.style(Style::Gray)?;
             out.push(b'-')?;
         }
 
@@ -103,7 +103,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
             out.style(Style::Green)?;
             out.push(b'x')?;
         } else {
-            out.style(Style::White)?;
+            out.style(Style::Gray)?;
             out.push(b'-')?;
         }
 
@@ -111,7 +111,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
             out.style(Style::Yellow)?;
             out.push(b'r')?;
         } else {
-            out.style(Style::White)?;
+            out.style(Style::Gray)?;
             out.push(b'-')?;
         }
 
@@ -119,7 +119,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
             out.style(Style::Red)?;
             out.push(b'w')?;
         } else {
-            out.style(Style::White)?;
+            out.style(Style::Gray)?;
             out.push(b'-')?;
         }
 
@@ -127,7 +127,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
             out.style(Style::Green)?;
             out.push(b'x')?;
         } else {
-            out.style(Style::White)?;
+            out.style(Style::Gray)?;
             out.push(b'-')?;
         }
 
@@ -213,6 +213,52 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
         }
         out.push(b' ')?;
 
+        let mut localtime = libc::tm {
+            tm_sec: 0,
+            tm_min: 0,
+            tm_hour: 0,
+            tm_mday: 0,
+            tm_mon: 0,
+            tm_year: 0,
+            tm_wday: 0,
+            tm_yday: 0,
+            tm_isdst: 0,
+            tm_gmtoff: 0,
+            tm_zone: core::ptr::null_mut(),
+        };
+
+        unsafe {
+            libc::localtime_r(&stats.st_mtim.tv_sec, &mut localtime);
+        };
+
+        out.style(Style::Blue)?;
+
+        out.write(month_abbr(localtime.tm_mon as u32))?;
+        out.push(b' ')?;
+
+        let mut buf = itoa::Buffer::new();
+        let day = buf.format(localtime.tm_mday);
+        if day.len() < 2 {
+            out.push(b' ')?;
+        }
+        out.write(day.as_bytes())?;
+        out.push(b' ')?;
+
+        let hour = buf.format(localtime.tm_hour);
+        if hour.len() < 2 {
+            out.push(b' ')?;
+        }
+        out.write(hour.as_bytes())?;
+        out.push(b':')?;
+
+        let minute = buf.format(localtime.tm_min);
+        if minute.len() < 2 {
+            out.push(b'0')?;
+        }
+        out.write(minute.as_bytes())?;
+
+        out.push(b' ')?;
+
         out.style(e.style()?)?;
         out.write(e.name())?;
         out.style(Style::Reset)?;
@@ -234,7 +280,7 @@ struct Stats {
     _padding: u32,
     st_rdev: u64,
     st_size: u64,
-    st_blksize: u32,
+    st_blksize: u64,
     st_blocks: u64,
 
     st_atim: Timespec,
@@ -246,8 +292,8 @@ struct Stats {
 #[repr(C)]
 #[derive(Default)]
 struct Timespec {
-    tv_sec: u32,
-    tv_nsec: u32,
+    tv_sec: i64,
+    tv_nsec: i64,
 }
 
 pub fn write_grid(
@@ -437,4 +483,16 @@ fn write_to_stdout(bytes: &[u8]) -> Result<(), i32> {
         }
     }
     Ok(())
+}
+
+fn month_abbr(month: u32) -> &'static [u8] {
+    let month_names = [
+        b"Jan", b"Feb", b"Mar", b"Apr", b"May", b"Jun", b"Jul", b"Aug", b"Sep", b"Oct", b"Nov",
+        b"Dec",
+    ];
+    if month < 12 {
+        month_names[month as usize]
+    } else {
+        b"???"
+    }
 }
