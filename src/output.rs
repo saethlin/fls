@@ -13,7 +13,14 @@ const S_IWOTH: u32 = 2;
 const S_IROTH: u32 = 4;
 const S_IFDIR: u32 = 16384;
 
-pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error> {
+struct ShortStats {
+    mode: u32,
+    size: u64,
+    uid: u32,
+    mtime: i64,
+}
+
+pub fn write_details(root: &[u8], out: &mut BufferedStdout, show_all: bool) -> Result<(), Error> {
     let mut entries = Vec::new();
     let dir = match Directory::open(root) {
         Ok(d) => d,
@@ -22,8 +29,15 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
         Err(20) => return out.write(b"path isn't a directory (ENOTDIR)\n"),
         Err(e) => return Err(e)?,
     };
-    for e in dir.iter()?.filter(|e| e.name().get(0) != Some(&b'.')) {
-        entries.push(e)
+
+    if show_all {
+        for e in dir.iter()? {
+            entries.push(e)
+        }
+    } else {
+        for e in dir.iter()?.filter(|e| e.name().get(0) != Some(&b'.')) {
+            entries.push(e)
+        }
     }
 
     entries.sort_by(|a, b| {
@@ -37,11 +51,15 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
     path.pop();
     path.push(b'/');
 
-    for e in entries {
+    let mut all_stats: Vec<ShortStats> = Vec::with_capacity(entries.len());
+
+    let mut longest_name_len = 0;
+
+    for e in &entries {
         path.extend_from_slice(e.name_with_nul());
         let mut stats = Stats::default();
         unsafe {
-            let ret = syscall::syscall!(LSTAT, path.as_ptr(), (&mut stats) as *mut Stats) as isize;
+            let ret = syscall::syscall!(STAT, path.as_ptr(), (&mut stats) as *mut Stats) as isize;
             if ret < 0 {
                 return Err(Error(-ret as i32));
             }
@@ -49,7 +67,43 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
         while path.last() != Some(&b'/') {
             path.pop();
         }
-        let mode = stats.st_mode;
+
+        all_stats.push(ShortStats {
+            mode: stats.st_mode,
+            size: stats.st_size,
+            uid: stats.st_uid,
+            mtime: stats.st_mtim.tv_sec,
+        });
+
+        unsafe {
+            let pw = libc::getpwuid(stats.st_uid);
+            let name_len = libc::strlen((*pw).pw_name);
+            longest_name_len = longest_name_len.max(name_len);
+        }
+    }
+
+    let current_year = unsafe {
+        let mut localtime = libc::tm {
+            tm_sec: 0,
+            tm_min: 0,
+            tm_hour: 0,
+            tm_mday: 0,
+            tm_mon: 0,
+            tm_year: 0,
+            tm_wday: 0,
+            tm_yday: 0,
+            tm_isdst: 0,
+            tm_gmtoff: 0,
+            tm_zone: core::ptr::null_mut(),
+        };
+
+        let time = libc::time(core::ptr::null_mut());
+        libc::localtime_r(&time, &mut localtime);
+        localtime.tm_year
+    };
+
+    for (e, stats) in entries.iter().zip(all_stats.iter()) {
+        let mode = stats.mode;
 
         if mode & S_IFDIR > 0 {
             out.style(Style::BlueBold)?;
@@ -142,11 +196,11 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
 
         if mode & S_IFDIR > 0 {
             out.write(b"    ")?;
-        } else if stats.st_size > gigabyte {
+        } else if stats.size > gigabyte {
             let mut buf = itoa::Buffer::new();
-            let converted = (stats.st_size as f32) / gigabyte as f32;
+            let converted = (stats.size as f32) / gigabyte as f32;
             let size = buf
-                .format(((stats.st_size as f32) / gigabyte as f32 * 10.).round() as u32)
+                .format(((stats.size as f32) / gigabyte as f32 * 10.).round() as u32)
                 .as_bytes();
             if converted < 10. {
                 out.write(&[size[0], b'.', size[1]])?;
@@ -157,11 +211,11 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
                 out.write(&size[..3])?;
             }
             out.push(b'G')?;
-        } else if stats.st_size > 1_000_000 {
+        } else if stats.size > 1_000_000 {
             let mut buf = itoa::Buffer::new();
-            let converted = (stats.st_size as f32) / megabyte as f32;
+            let converted = (stats.size as f32) / megabyte as f32;
             let size = buf
-                .format(((stats.st_size as f32) / megabyte as f32 * 10.).round() as u32)
+                .format(((stats.size as f32) / megabyte as f32 * 10.).round() as u32)
                 .as_bytes();
             if converted < 10. {
                 out.write(&[size[0], b'.', size[1]])?;
@@ -172,11 +226,11 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
                 out.write(&size[..3])?;
             }
             out.push(b'M')?;
-        } else if stats.st_size > 1_000 {
+        } else if stats.size > 1_000 {
             let mut buf = itoa::Buffer::new();
-            let converted = (stats.st_size as f32) / kilobyte as f32;
+            let converted = (stats.size as f32) / kilobyte as f32;
             let size = buf
-                .format(((stats.st_size as f32) / kilobyte as f32 * 10.).round() as u32)
+                .format(((stats.size as f32) / kilobyte as f32 * 10.).round() as u32)
                 .as_bytes();
             if converted < 10. {
                 out.write(&[size[0], b'.', size[1]])?;
@@ -189,7 +243,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
             out.push(b'K')?;
         } else {
             let mut buf = itoa::Buffer::new();
-            let size = buf.format(stats.st_size);
+            let size = buf.format(stats.size);
             for _ in 0..(4 - size.len()) {
                 out.push(b' ')?;
             }
@@ -199,12 +253,16 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
 
         out.style(Style::YellowBold)?;
         unsafe {
-            let pw = libc::getpwuid(stats.st_uid);
+            let pw = libc::getpwuid(stats.uid);
             let name = (*pw).pw_name;
             let mut offset = 0;
             loop {
                 let c = *name.offset(offset);
                 if c == 0 {
+                    // pad out to the length of the longest name
+                    for _ in 0..longest_name_len - offset as usize {
+                        out.push(b' ')?;
+                    }
                     break;
                 }
                 out.push(c as u8)?;
@@ -228,7 +286,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
         };
 
         unsafe {
-            libc::localtime_r(&stats.st_mtim.tv_sec, &mut localtime);
+            libc::localtime_r(&stats.mtime, &mut localtime);
         };
 
         out.style(Style::Blue)?;
@@ -244,18 +302,23 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error>
         out.write(day.as_bytes())?;
         out.push(b' ')?;
 
-        let hour = buf.format(localtime.tm_hour);
-        if hour.len() < 2 {
-            out.push(b' ')?;
-        }
-        out.write(hour.as_bytes())?;
-        out.push(b':')?;
+        if localtime.tm_year == current_year {
+            let hour = buf.format(localtime.tm_hour);
+            if hour.len() < 2 {
+                out.push(b' ')?;
+            }
+            out.write(hour.as_bytes())?;
+            out.push(b':')?;
 
-        let minute = buf.format(localtime.tm_min);
-        if minute.len() < 2 {
-            out.push(b'0')?;
+            let minute = buf.format(localtime.tm_min);
+            if minute.len() < 2 {
+                out.push(b'0')?;
+            }
+            out.write(minute.as_bytes())?;
+        } else {
+            out.push(b' ')?;
+            out.write(buf.format(localtime.tm_year + 1900).as_bytes())?;
         }
-        out.write(minute.as_bytes())?;
 
         out.push(b' ')?;
 
@@ -300,6 +363,7 @@ pub fn write_grid(
     root: &[u8],
     out: &mut BufferedStdout,
     terminal_width: usize,
+    show_all: bool,
 ) -> Result<(), Error> {
     let mut entries = Vec::new();
     let dir = match Directory::open(root) {
@@ -309,8 +373,15 @@ pub fn write_grid(
         Err(20) => return out.write(b"path isn't a directory (ENOTDIR)\n"),
         Err(e) => return Err(e)?,
     };
-    for e in dir.iter()?.filter(|e| e.name().get(0) != Some(&b'.')) {
-        entries.push(e)
+
+    if show_all {
+        for e in dir.iter()? {
+            entries.push(e)
+        }
+    } else {
+        for e in dir.iter()?.filter(|e| e.name().get(0) != Some(&b'.')) {
+            entries.push(e)
+        }
     }
 
     entries.sort_by(|a, b| {
@@ -367,11 +438,22 @@ pub fn write_grid(
     Ok(())
 }
 
-pub fn write_single_column(root: &[u8], out: &mut BufferedStdout) -> Result<(), Error> {
+pub fn write_single_column(
+    root: &[u8],
+    out: &mut BufferedStdout,
+    show_all: bool,
+) -> Result<(), Error> {
     let mut entries = Vec::new();
     let dir = Directory::open(root)?;
-    for e in dir.iter()?.filter(|e| e.name().get(0) != Some(&b'.')) {
-        entries.push(e)
+
+    if show_all {
+        for e in dir.iter()? {
+            entries.push(e)
+        }
+    } else {
+        for e in dir.iter()?.filter(|e| e.name().get(0) != Some(&b'.')) {
+            entries.push(e)
+        }
     }
 
     entries.sort_by(|a, b| {

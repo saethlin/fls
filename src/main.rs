@@ -82,19 +82,21 @@ fn run(args: &[&[u8]]) -> Result<(), Error> {
         args.push(&cwd);
     }
 
+    let show_all = options.iter().any(|opt| *opt == b"-a\0");
+
     if let Ok(width) = terminal_width {
         if options.iter().any(|opt| *opt == b"-l\0") {
             for arg in args.into_iter() {
-                write_details(arg, &mut out)?;
+                write_details(arg, &mut out, show_all)?;
             }
         } else {
             for arg in args.into_iter() {
-                write_grid(arg, &mut out, width)?;
+                write_grid(arg, &mut out, width, show_all)?;
             }
         }
     } else {
         for arg in args.into_iter() {
-            write_single_column(arg, &mut out)?;
+            write_single_column(arg, &mut out, show_all)?;
         }
     }
 
