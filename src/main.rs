@@ -22,6 +22,7 @@ fn alloc_error(_: core::alloc::Layout) -> ! {
 
 extern crate alloc;
 use alloc::vec::Vec;
+use smallvec::SmallVec;
 
 mod directory;
 mod error;
@@ -66,11 +67,10 @@ fn run(args: &[&[u8]]) -> Result<(), Error> {
         }
     };
 
-    let options: Vec<_> = args
-        .iter()
-        .skip(1)
-        .take_while(|a| a.get(0) == Some(&b'-'))
-        .collect();
+    let mut options: SmallVec<[u8; 8]> = SmallVec::new();
+    for a in args.iter().skip(1).take_while(|a| a.get(0) == Some(&b'-')) {
+        options.extend(a.iter().cloned().take_while(|a| *a != 0));
+    }
 
     let mut args: Vec<_> = args
         .iter()
@@ -82,10 +82,10 @@ fn run(args: &[&[u8]]) -> Result<(), Error> {
         args.push(&cwd);
     }
 
-    let show_all = options.iter().any(|opt| *opt == b"-a\0");
+    let show_all = options.contains(&b'a');
 
     if let Ok(width) = terminal_width {
-        if options.iter().any(|opt| *opt == b"-l\0") {
+        if options.contains(&b'l') {
             for arg in args.into_iter() {
                 write_details(arg, &mut out, show_all)?;
             }
