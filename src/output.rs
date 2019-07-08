@@ -1,6 +1,7 @@
 use crate::{Directory, Error, Style};
 use alloc::vec;
 use alloc::vec::Vec;
+use smallvec::SmallVec;
 
 const S_IXUSR: u32 = 64;
 const S_IWUSR: u32 = 128;
@@ -54,6 +55,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout, show_all: bool) -> R
     let mut all_stats: Vec<ShortStats> = Vec::with_capacity(entries.len());
 
     let mut longest_name_len = 0;
+    let mut names = Vec::new();
 
     for e in &entries {
         path.extend_from_slice(e.name_with_nul());
@@ -75,10 +77,19 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout, show_all: bool) -> R
             mtime: stats.st_mtim.tv_sec,
         });
 
-        unsafe {
-            let pw = libc::getpwuid(stats.st_uid);
-            let name_len = libc::strlen((*pw).pw_name);
-            longest_name_len = longest_name_len.max(name_len);
+        if !names.iter().any(|(uid, _)| *uid == stats.st_uid) {
+            unsafe {
+                let pw = libc::getpwuid(stats.st_uid);
+                let name_ptr = (*pw).pw_name;
+                let mut offset = 0;
+                let mut name: SmallVec<[u8; 24]> = SmallVec::new();
+                while *name_ptr.offset(offset) != 0 {
+                    name.push(*name_ptr.offset(offset) as u8);
+                    offset += 1;
+                }
+                longest_name_len = longest_name_len.max(name.len());
+                names.push((stats.st_uid, name));
+            }
         }
     }
 
@@ -252,22 +263,15 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout, show_all: bool) -> R
         out.push(b' ')?;
 
         out.style(Style::YellowBold)?;
-        unsafe {
-            let pw = libc::getpwuid(stats.uid);
-            let name = (*pw).pw_name;
-            let mut offset = 0;
-            loop {
-                let c = *name.offset(offset);
-                if c == 0 {
-                    // pad out to the length of the longest name
-                    for _ in 0..longest_name_len - offset as usize {
-                        out.push(b' ')?;
-                    }
-                    break;
-                }
-                out.push(c as u8)?;
-                offset += 1;
-            }
+        let name = names
+            .iter()
+            .find(|&(uid, _)| *uid == stats.uid)
+            .map(|(_, name)| name.clone())
+            .unwrap_or_default();
+        out.write(name.as_ref())?;
+        // pad out to the length of the longest name
+        for _ in 0..longest_name_len - name.len() as usize {
+            out.push(b' ')?;
         }
         out.push(b' ')?;
 
