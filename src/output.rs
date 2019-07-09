@@ -21,7 +21,6 @@ struct ShortStats {
 }
 
 pub fn write_details(root: &[u8], out: &mut BufferedStdout, show_all: bool) -> Result<(), Error> {
-    let mut entries = Vec::new();
     let dir = match Directory::open(root) {
         Ok(d) => d,
         Err(2) => return out.write(b"path doesn't exist (ENOENT)\n"),
@@ -29,6 +28,9 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout, show_all: bool) -> R
         Err(20) => return out.write(b"path isn't a directory (ENOTDIR)\n"),
         Err(e) => return Err(e)?,
     };
+
+    let hint = dir.iter().size_hint();
+    let mut entries = Vec::with_capacity(hint.1.unwrap_or(hint.0));
 
     if show_all {
         for e in dir.iter() {
@@ -372,7 +374,6 @@ pub fn write_grid(
     terminal_width: usize,
     show_all: bool,
 ) -> Result<(), Error> {
-    let mut entries = Vec::new();
     let dir = match Directory::open(root) {
         Ok(d) => d,
         Err(2) => return out.write(b"path doesn't exist (ENOENT)\n"),
@@ -380,6 +381,9 @@ pub fn write_grid(
         Err(20) => return out.write(b"path isn't a directory (ENOTDIR)\n"),
         Err(e) => return Err(e)?,
     };
+
+    let hint = dir.iter().size_hint();
+    let mut entries = Vec::with_capacity(hint.1.unwrap_or(hint.0));
 
     if show_all {
         for e in dir.iter() {
@@ -445,8 +449,10 @@ pub fn write_single_column(
     out: &mut BufferedStdout,
     show_all: bool,
 ) -> Result<(), Error> {
-    let mut entries = Vec::new();
     let dir = Directory::open(root)?;
+
+    let hint = dir.iter().size_hint();
+    let mut entries = Vec::with_capacity(hint.1.unwrap_or(hint.0));
 
     if show_all {
         for e in dir.iter() {

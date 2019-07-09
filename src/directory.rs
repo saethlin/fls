@@ -2,6 +2,7 @@ use crate::error::Error;
 use crate::style::Style;
 use alloc::vec;
 use alloc::vec::Vec;
+use smallvec::SmallVec;
 
 use syscall::syscall;
 
@@ -11,7 +12,7 @@ const O_RDONLY: i32 = 0;
 
 pub struct Directory {
     fd: i32,
-    dirents: Vec<u8>,
+    dirents: SmallVec<[u8; 4096]>,
     bytes_used: isize,
 }
 
@@ -35,7 +36,7 @@ impl<'a> Directory {
             return Err(-fd);
         }
 
-        let mut dirents = vec![0; 4096];
+        let mut dirents: SmallVec<[u8; 4096]> = smallvec::smallvec![0; 4096];
         let ret = unsafe { syscall!(GETDENTS64, fd, dirents.as_mut_ptr(), dirents.len()) as isize };
         if ret < 0 {
             return Err(-ret);
@@ -44,8 +45,10 @@ impl<'a> Directory {
         let mut bytes_used = bytes_read;
 
         while bytes_read > 0 {
-            dirents.reserve(4096);
-            dirents.extend(core::iter::repeat(0).take(4096));
+            if dirents.len() - bytes_used < core::mem::size_of::<libc::dirent64>() {
+                dirents.reserve(4096);
+                dirents.extend(core::iter::repeat(0).take(4096));
+            }
             let ret = unsafe {
                 syscall!(
                     GETDENTS64,
@@ -103,6 +106,15 @@ impl<'a> Iterator for IterDir<'a> {
 
             entry
         }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (
+            self.directory.bytes_used as usize / core::mem::size_of::<libc::dirent64>(),
+            Some(
+                self.directory.bytes_used as usize / (core::mem::size_of::<libc::dirent64>() - 256),
+            ),
+        )
     }
 }
 
