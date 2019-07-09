@@ -184,7 +184,7 @@ fn style_for(name: &[u8]) -> Style {
         None => return Style::White,
         Some(ext) => ext,
     };
-    let compressed: &[&[u8]] = &[b"tar", b"gz", b"tgz"];
+    let compressed: &[&[u8]] = &[b"tar", b"gz", b"tgz", b"xz"];
     let document: &[&[u8]] = &[b"pdf", b"eps"];
     let media: &[&[u8]] = &[b"png", b"mp4"];
     if compressed.contains(&extension) {

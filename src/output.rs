@@ -12,7 +12,6 @@ const S_IRGRP: u32 = 32;
 const S_IXOTH: u32 = 1;
 const S_IWOTH: u32 = 2;
 const S_IROTH: u32 = 4;
-const S_IFDIR: u32 = 16384;
 
 struct ShortStats {
     mode: u32,
@@ -61,7 +60,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout, show_all: bool) -> R
         path.extend_from_slice(e.name_with_nul());
         let mut stats = Stats::default();
         unsafe {
-            let ret = syscall::syscall!(STAT, path.as_ptr(), (&mut stats) as *mut Stats) as isize;
+            let ret = syscall::syscall!(LSTAT, path.as_ptr(), (&mut stats) as *mut Stats) as isize;
             if ret < 0 {
                 return Err(Error(-ret as i32));
             }
@@ -116,9 +115,13 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout, show_all: bool) -> R
     for (e, stats) in entries.iter().zip(all_stats.iter()) {
         let mode = stats.mode;
 
-        if mode & S_IFDIR > 0 {
+        let entry_type = mode & libc::S_IFMT;
+        if entry_type == libc::S_IFDIR {
             out.style(Style::BlueBold)?;
             out.push(b'd')?;
+        } else if entry_type == libc::S_IFLNK {
+            out.style(Style::Cyan)?;
+            out.push(b'l')?;
         } else {
             out.style(Style::White)?;
             out.push(b'.')?;
@@ -205,7 +208,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout, show_all: bool) -> R
         let megabyte = 1024 * 1024;
         let kilobyte = 1024;
 
-        if mode & S_IFDIR > 0 {
+        if entry_type == libc::S_IFDIR {
             out.write(b"    ")?;
         } else if stats.size > gigabyte {
             let mut buf = itoa::Buffer::new();
@@ -388,12 +391,7 @@ pub fn write_grid(
         }
     }
 
-    entries.sort_by(|a, b| {
-        a.name()
-            .iter()
-            .map(u8::to_ascii_lowercase)
-            .cmp(b.name().iter().map(u8::to_ascii_lowercase))
-    });
+    entries.sort_by(|a, b| vercmp(a.name(), b.name()));
 
     let mut columns = 1;
     let mut widths = match entries.iter().map(|e| e.name().len()).max() {
@@ -581,4 +579,59 @@ fn month_abbr(month: u32) -> &'static [u8] {
     } else {
         b"???"
     }
+}
+
+trait SliceExt {
+    fn digit_at(&self, index: usize) -> bool;
+}
+
+impl SliceExt for &[u8] {
+    fn digit_at(&self, index: usize) -> bool {
+        self.get(index).map(u8::is_ascii_digit).unwrap_or(false)
+    }
+}
+
+use core::cmp::Ordering;
+fn vercmp(s1: &[u8], s2: &[u8]) -> Ordering {
+    let mut s1_pos: usize = 0;
+    let mut s2_pos: usize = 0;
+
+    while s1_pos < s1.len() || s2_pos < s2.len() {
+        let mut first_diff = Ordering::Equal;
+        while (s1_pos < s1.len() && !s1.digit_at(s1_pos))
+            || (s2_pos < s2.len() && !s2.digit_at(s2_pos))
+        {
+            let s1_c = s1.get(s1_pos);
+            let s2_c = s2.get(s2_pos);
+            if s1_c != s2_c {
+                return s1_c.cmp(&s2_c);;
+            }
+            s1_pos += 1;
+            s2_pos += 1;
+        }
+        while s1.get(s1_pos) == Some(&b'0') {
+            s1_pos += 1;
+        }
+        while s2.get(s2_pos) == Some(&b'0') {
+            s2_pos += 1;
+        }
+
+        while s1.digit_at(s1_pos) && s2.digit_at(s2_pos) {
+            if first_diff == Ordering::Equal {
+                first_diff = s1.get(s1_pos).cmp(&s2.get(s2_pos));
+            }
+            s1_pos += 1;
+            s2_pos += 1;
+        }
+        if s1.digit_at(s1_pos) {
+            return Ordering::Greater;
+        }
+        if s2.digit_at(s2_pos) {
+            return Ordering::Less;
+        }
+        if first_diff != Ordering::Equal {
+            return first_diff;
+        }
+    }
+    return Ordering::Equal;
 }

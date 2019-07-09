@@ -1,2 +1,2 @@
 [build]
-rustflags = ["-ldylib=c"]
+rustflags = ["-ldylib=c", "-Cforce-frame-pointers=yes"]
