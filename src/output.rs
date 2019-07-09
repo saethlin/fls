@@ -31,11 +31,11 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout, show_all: bool) -> R
     };
 
     if show_all {
-        for e in dir.iter()? {
+        for e in dir.iter() {
             entries.push(e)
         }
     } else {
-        for e in dir.iter()?.filter(|e| e.name().get(0) != Some(&b'.')) {
+        for e in dir.iter().filter(|e| e.name().get(0) != Some(&b'.')) {
             entries.push(e)
         }
     }
@@ -62,7 +62,7 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout, show_all: bool) -> R
         unsafe {
             let ret = syscall::syscall!(LSTAT, path.as_ptr(), (&mut stats) as *mut Stats) as isize;
             if ret < 0 {
-                return Err(Error(-ret as i32));
+                return Err(Error(-ret));
             }
         }
         while path.last() != Some(&b'/') {
@@ -382,11 +382,11 @@ pub fn write_grid(
     };
 
     if show_all {
-        for e in dir.iter()? {
+        for e in dir.iter() {
             entries.push(e)
         }
     } else {
-        for e in dir.iter()?.filter(|e| e.name().get(0) != Some(&b'.')) {
+        for e in dir.iter().filter(|e| e.name().get(0) != Some(&b'.')) {
             entries.push(e)
         }
     }
@@ -449,11 +449,11 @@ pub fn write_single_column(
     let dir = Directory::open(root)?;
 
     if show_all {
-        for e in dir.iter()? {
+        for e in dir.iter() {
             entries.push(e)
         }
     } else {
-        for e in dir.iter()?.filter(|e| e.name().get(0) != Some(&b'.')) {
+        for e in dir.iter().filter(|e| e.name().get(0) != Some(&b'.')) {
             entries.push(e)
         }
     }

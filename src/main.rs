@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 #![feature(lang_items, alloc_error_handler)]
+#![feature(ptr_offset_from)]
 
 #[lang = "eh_personality"]
 #[no_mangle]
@@ -50,7 +51,7 @@ pub extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
 
     match run(&args) {
         Ok(()) => 0,
-        Err(e) => e.0,
+        Err(e) => e.0 as i32,
     }
 }
 
