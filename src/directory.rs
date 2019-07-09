@@ -1,5 +1,4 @@
-use crate::error::Error;
-use crate::style::Style;
+use crate::{CStr, Error, Style};
 use smallvec::SmallVec;
 
 use syscall::syscall;
@@ -23,11 +22,8 @@ impl Drop for Directory {
 }
 
 impl<'a> Directory {
-    pub fn open(path: &[u8]) -> Result<Self, isize> {
-        if path.last() != Some(&0) {
-            return Err(1337);
-        }
-        // Requires that path be null-terminated, which we check above
+    pub fn open(path: CStr) -> Result<Self, isize> {
+        // Requires that path be null-terminated, which is an invariant of CStr
         let fd =
             unsafe { syscall!(OPEN, path.as_ptr(), O_RDONLY | O_DIRECTORY | O_CLOEXEC) as isize };
         if fd < 0 {

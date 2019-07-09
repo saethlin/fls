@@ -1,4 +1,4 @@
-use crate::{Directory, Error, Style};
+use crate::{CStr, Directory, Error, Style};
 use alloc::vec;
 use alloc::vec::Vec;
 use smallvec::SmallVec;
@@ -20,7 +20,7 @@ struct ShortStats {
     mtime: i64,
 }
 
-pub fn write_details(root: &[u8], out: &mut BufferedStdout, show_all: bool) -> Result<(), Error> {
+pub fn write_details(root: CStr, out: &mut BufferedStdout, show_all: bool) -> Result<(), Error> {
     let dir = match Directory::open(root) {
         Ok(d) => d,
         Err(2) => return out.write(b"path doesn't exist (ENOENT)\n"),
@@ -49,7 +49,8 @@ pub fn write_details(root: &[u8], out: &mut BufferedStdout, show_all: bool) -> R
             .cmp(b.name().iter().map(u8::to_ascii_lowercase))
     });
 
-    let mut path = root.to_vec();
+    use core::iter::FromIterator;
+    let mut path = Vec::from_iter(root.iter().cloned());
     path.pop();
     path.push(b'/');
 
