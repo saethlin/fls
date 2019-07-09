@@ -368,6 +368,13 @@ struct Timespec {
     tv_nsec: i64,
 }
 
+fn len_utf8(s: &[u8]) -> usize {
+    use unicode_segmentation::UnicodeSegmentation;
+    core::str::from_utf8(s)
+        .map(|s| s.graphemes(false).count())
+        .unwrap_or_else(|_| s.len())
+}
+
 pub fn write_grid(
     root: &[u8],
     out: &mut BufferedStdout,
@@ -407,12 +414,7 @@ pub fn write_grid(
         let entries_per_column =
             entries.len() / n_columns + ((entries.len() % n_columns != 0) as usize);
         for (c, column) in entries.chunks(entries_per_column).enumerate() {
-            tmp_widths[c] = column
-                .iter()
-                .map(|entry| entry.name().len())
-                .max()
-                .unwrap_or(1)
-                + 2;
+            tmp_widths[c] = column.iter().map(|e| len_utf8(e.name())).max().unwrap_or(1) + 2;
         }
         if tmp_widths.iter().sum::<usize>() > terminal_width as usize {
             break;
@@ -434,7 +436,7 @@ pub fn write_grid(
             out.style(e.style()?)?;
             out.write(e.name())?;
 
-            for _ in 0..width - e.name().len() {
+            for _ in 0..width - len_utf8(e.name()) {
                 out.push(b' ')?;
             }
         }
