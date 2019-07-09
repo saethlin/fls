@@ -1,7 +1,5 @@
 use crate::error::Error;
 use crate::style::Style;
-use alloc::vec;
-use alloc::vec::Vec;
 use smallvec::SmallVec;
 
 use syscall::syscall;
