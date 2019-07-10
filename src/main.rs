@@ -105,6 +105,8 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         args.push(cwd);
     }
 
+    args.sort_by(|a, b| vercmp(a.bytes, b.bytes));
+
     let show_all = options.contains(&b'a');
     let multiple_args = args.len() > 1;
 
@@ -132,8 +134,6 @@ fn run(args: &[CStr]) -> Result<(), Error> {
             }
         }
     }
-
-    files.sort_by(|a, b| vercmp(a.name(), b.name()));
 
     if let Ok(width) = terminal_width {
         if options.contains(&b'l') {

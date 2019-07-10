@@ -26,7 +26,6 @@ pub fn write_details<T: DirEntry>(
     entries: &[T],
     out: &mut BufferedStdout,
 ) -> Result<(), Error> {
-    use core::iter::FromIterator;
     let mut path = Vec::new();
 
     let mut all_stats: Vec<ShortStats> = Vec::with_capacity(entries.len());
