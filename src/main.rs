@@ -30,7 +30,7 @@ mod error;
 mod output;
 mod style;
 
-use directory::Directory;
+use directory::{DirEntry, Directory};
 use error::Error;
 use output::*;
 use style::Style;
@@ -95,7 +95,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         options.extend(a.iter().cloned().take_while(|a| *a != 0));
     }
 
-    let mut args: Vec<CStr> = args
+    let mut args: Vec<_> = args
         .iter()
         .cloned()
         .skip(1)
@@ -108,19 +108,39 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
     let show_all = options.contains(&b'a');
 
-    if let Ok(width) = terminal_width {
-        if options.contains(&b'l') {
-            for arg in args.into_iter() {
-                write_details(arg, &mut out, show_all)?;
+    for arg in args.into_iter() {
+        let dir = match Directory::open(arg) {
+            Ok(d) => d,
+            Err(2) => return out.write(b"path doesn't exist (ENOENT)\n"),
+            Err(13) => return out.write(b"access denied (EACCES)\n"),
+            Err(20) => return out.write(b"path isn't a directory (ENOTDIR)\n"),
+            Err(e) => return Err(e)?,
+        };
+
+        //let hint = dir.iter().size_hint();
+        let mut entries: SmallVec<[DirEntry; 32]> = SmallVec::new();
+        //entries.reserve(hint.1.unwrap_or(hint.0));
+
+        if show_all {
+            for e in dir.iter() {
+                entries.push(e)
             }
         } else {
-            for arg in args.into_iter() {
-                write_grid(arg, &mut out, width, show_all)?;
+            for e in dir.iter().filter(|e| e.name().get(0) != Some(&b'.')) {
+                entries.push(e)
             }
         }
-    } else {
-        for arg in args.into_iter() {
-            write_single_column(arg, &mut out, show_all)?;
+
+        entries.sort_by(|a, b| vercmp(a.name(), b.name()));
+
+        if let Ok(width) = terminal_width {
+            if options.contains(&b'l') {
+                write_details(arg, &entries, &mut out)?;
+            } else {
+                write_grid(&entries, &mut out, width)?;
+            }
+        } else {
+            write_single_column(&entries, &mut out)?;
         }
     }
 
@@ -141,5 +161,60 @@ fn terminal_size() -> Result<libc::winsize, Error> {
         } else {
             Ok(winsize)
         }
+    }
+}
+
+use core::cmp::Ordering;
+fn vercmp(s1: &[u8], s2: &[u8]) -> Ordering {
+    let mut s1_pos: usize = 0;
+    let mut s2_pos: usize = 0;
+
+    while s1_pos < s1.len() || s2_pos < s2.len() {
+        let mut first_diff = Ordering::Equal;
+        while (s1_pos < s1.len() && !s1.digit_at(s1_pos))
+            || (s2_pos < s2.len() && !s2.digit_at(s2_pos))
+        {
+            let s1_c = s1.get(s1_pos);
+            let s2_c = s2.get(s2_pos);
+            if s1_c != s2_c {
+                return s1_c.cmp(&s2_c);;
+            }
+            s1_pos += 1;
+            s2_pos += 1;
+        }
+        while s1.get(s1_pos) == Some(&b'0') {
+            s1_pos += 1;
+        }
+        while s2.get(s2_pos) == Some(&b'0') {
+            s2_pos += 1;
+        }
+
+        while s1.digit_at(s1_pos) && s2.digit_at(s2_pos) {
+            if first_diff == Ordering::Equal {
+                first_diff = s1.get(s1_pos).cmp(&s2.get(s2_pos));
+            }
+            s1_pos += 1;
+            s2_pos += 1;
+        }
+        if s1.digit_at(s1_pos) {
+            return Ordering::Greater;
+        }
+        if s2.digit_at(s2_pos) {
+            return Ordering::Less;
+        }
+        if first_diff != Ordering::Equal {
+            return first_diff;
+        }
+    }
+    return Ordering::Equal;
+}
+
+trait SliceExt {
+    fn digit_at(&self, index: usize) -> bool;
+}
+
+impl SliceExt for &[u8] {
+    fn digit_at(&self, index: usize) -> bool {
+        self.get(index).map(u8::is_ascii_digit).unwrap_or(false)
     }
 }

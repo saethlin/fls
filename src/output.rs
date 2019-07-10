@@ -1,7 +1,8 @@
-use crate::{CStr, Directory, Error, Style};
+use crate::directory::DirEntry;
+use crate::{CStr, Error, Style};
 use alloc::vec;
 use alloc::vec::Vec;
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 
 const S_IXUSR: u32 = 64;
 const S_IWUSR: u32 = 128;
@@ -20,35 +21,11 @@ struct ShortStats {
     mtime: i64,
 }
 
-pub fn write_details(root: CStr, out: &mut BufferedStdout, show_all: bool) -> Result<(), Error> {
-    let dir = match Directory::open(root) {
-        Ok(d) => d,
-        Err(2) => return out.write(b"path doesn't exist (ENOENT)\n"),
-        Err(13) => return out.write(b"access denied (EACCES)\n"),
-        Err(20) => return out.write(b"path isn't a directory (ENOTDIR)\n"),
-        Err(e) => return Err(e)?,
-    };
-
-    let hint = dir.iter().size_hint();
-    let mut entries = Vec::with_capacity(hint.1.unwrap_or(hint.0));
-
-    if show_all {
-        for e in dir.iter() {
-            entries.push(e)
-        }
-    } else {
-        for e in dir.iter().filter(|e| e.name().get(0) != Some(&b'.')) {
-            entries.push(e)
-        }
-    }
-
-    entries.sort_by(|a, b| {
-        a.name()
-            .iter()
-            .map(u8::to_ascii_lowercase)
-            .cmp(b.name().iter().map(u8::to_ascii_lowercase))
-    });
-
+pub fn write_details(
+    root: CStr,
+    entries: &[DirEntry],
+    out: &mut BufferedStdout,
+) -> Result<(), Error> {
     use core::iter::FromIterator;
     let mut path = Vec::from_iter(root.iter().cloned());
     path.pop();
@@ -59,7 +36,7 @@ pub fn write_details(root: CStr, out: &mut BufferedStdout, show_all: bool) -> Re
     let mut longest_name_len = 0;
     let mut names = Vec::new();
 
-    for e in &entries {
+    for e in entries {
         path.extend_from_slice(e.name_with_nul());
         let mut stats = Stats::default();
         unsafe {
@@ -371,47 +348,27 @@ struct Timespec {
 
 fn len_utf8(s: &[u8]) -> usize {
     use unicode_segmentation::UnicodeSegmentation;
-    core::str::from_utf8(s)
-        .map(|s| s.graphemes(false).count())
-        .unwrap_or_else(|_| s.len())
+    if s.iter().all(|c| c.is_ascii()) {
+        s.len()
+    } else {
+        core::str::from_utf8(s)
+            .map(|s| s.graphemes(false).count())
+            .unwrap_or_else(|_| s.len())
+    }
 }
 
 pub fn write_grid(
-    root: &[u8],
+    entries: &[DirEntry],
     out: &mut BufferedStdout,
     terminal_width: usize,
-    show_all: bool,
 ) -> Result<(), Error> {
-    let dir = match Directory::open(root) {
-        Ok(d) => d,
-        Err(2) => return out.write(b"path doesn't exist (ENOENT)\n"),
-        Err(13) => return out.write(b"access denied (EACCES)\n"),
-        Err(20) => return out.write(b"path isn't a directory (ENOTDIR)\n"),
-        Err(e) => return Err(e)?,
-    };
-
-    let hint = dir.iter().size_hint();
-    let mut entries = Vec::with_capacity(hint.1.unwrap_or(hint.0));
-
-    if show_all {
-        for e in dir.iter() {
-            entries.push(e)
-        }
-    } else {
-        for e in dir.iter().filter(|e| e.name().get(0) != Some(&b'.')) {
-            entries.push(e)
-        }
-    }
-
-    entries.sort_by(|a, b| vercmp(a.name(), b.name()));
-
     let mut columns = 1;
-    let mut widths = match entries.iter().map(|e| e.name().len()).max() {
-        Some(max_len) => vec![max_len],
+    let mut widths: SmallVec<[usize; 16]> = match entries.iter().map(|e| e.name().len()).max() {
+        Some(max_len) => smallvec![max_len],
         None => return Ok(()), // No entries, nothing to do here
     };
     for n_columns in 1..=entries.len() {
-        let mut tmp_widths = vec![0; n_columns];
+        let mut tmp_widths: SmallVec<[usize; 16]> = smallvec![0; n_columns];
         let entries_per_column =
             entries.len() / n_columns + ((entries.len() % n_columns != 0) as usize);
         for (c, column) in entries.chunks(entries_per_column).enumerate() {
@@ -447,33 +404,7 @@ pub fn write_grid(
     Ok(())
 }
 
-pub fn write_single_column(
-    root: &[u8],
-    out: &mut BufferedStdout,
-    show_all: bool,
-) -> Result<(), Error> {
-    let dir = Directory::open(root)?;
-
-    let hint = dir.iter().size_hint();
-    let mut entries = Vec::with_capacity(hint.1.unwrap_or(hint.0));
-
-    if show_all {
-        for e in dir.iter() {
-            entries.push(e)
-        }
-    } else {
-        for e in dir.iter().filter(|e| e.name().get(0) != Some(&b'.')) {
-            entries.push(e)
-        }
-    }
-
-    entries.sort_by(|a, b| {
-        a.name()
-            .iter()
-            .map(u8::to_ascii_lowercase)
-            .cmp(b.name().iter().map(u8::to_ascii_lowercase))
-    });
-
+pub fn write_single_column(entries: &[DirEntry], out: &mut BufferedStdout) -> Result<(), Error> {
     for e in entries {
         out.write(e.name())?;
         out.push(b'\n')?;
@@ -588,59 +519,4 @@ fn month_abbr(month: u32) -> &'static [u8] {
     } else {
         b"???"
     }
-}
-
-trait SliceExt {
-    fn digit_at(&self, index: usize) -> bool;
-}
-
-impl SliceExt for &[u8] {
-    fn digit_at(&self, index: usize) -> bool {
-        self.get(index).map(u8::is_ascii_digit).unwrap_or(false)
-    }
-}
-
-use core::cmp::Ordering;
-fn vercmp(s1: &[u8], s2: &[u8]) -> Ordering {
-    let mut s1_pos: usize = 0;
-    let mut s2_pos: usize = 0;
-
-    while s1_pos < s1.len() || s2_pos < s2.len() {
-        let mut first_diff = Ordering::Equal;
-        while (s1_pos < s1.len() && !s1.digit_at(s1_pos))
-            || (s2_pos < s2.len() && !s2.digit_at(s2_pos))
-        {
-            let s1_c = s1.get(s1_pos);
-            let s2_c = s2.get(s2_pos);
-            if s1_c != s2_c {
-                return s1_c.cmp(&s2_c);;
-            }
-            s1_pos += 1;
-            s2_pos += 1;
-        }
-        while s1.get(s1_pos) == Some(&b'0') {
-            s1_pos += 1;
-        }
-        while s2.get(s2_pos) == Some(&b'0') {
-            s2_pos += 1;
-        }
-
-        while s1.digit_at(s1_pos) && s2.digit_at(s2_pos) {
-            if first_diff == Ordering::Equal {
-                first_diff = s1.get(s1_pos).cmp(&s2.get(s2_pos));
-            }
-            s1_pos += 1;
-            s2_pos += 1;
-        }
-        if s1.digit_at(s1_pos) {
-            return Ordering::Greater;
-        }
-        if s2.digit_at(s2_pos) {
-            return Ordering::Less;
-        }
-        if first_diff != Ordering::Equal {
-            return first_diff;
-        }
-    }
-    return Ordering::Equal;
 }
