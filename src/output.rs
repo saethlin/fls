@@ -59,15 +59,23 @@ pub fn write_details(
         if !names.iter().any(|(uid, _)| *uid == stats.st_uid) {
             unsafe {
                 let pw = libc::getpwuid(stats.st_uid);
-                let name_ptr = (*pw).pw_name;
-                let mut offset = 0;
-                let mut name: SmallVec<[u8; 24]> = SmallVec::new();
-                while *name_ptr.offset(offset) != 0 {
-                    name.push(*name_ptr.offset(offset) as u8);
-                    offset += 1;
+                if !pw.is_null() {
+                    let name_ptr = (*pw).pw_name;
+                    let mut offset = 0;
+                    let mut name: SmallVec<[u8; 24]> = SmallVec::new();
+                    while *name_ptr.offset(offset) != 0 {
+                        name.push(*name_ptr.offset(offset) as u8);
+                        offset += 1;
+                    }
+                    longest_name_len = longest_name_len.max(name.len());
+                    names.push((stats.st_uid, name));
+                } else {
+                    let mut buf = itoa::Buffer::new();
+                    let mut name: SmallVec<[u8; 24]> = SmallVec::new();
+                    name.extend_from_slice(buf.format(stats.st_uid).as_bytes());
+                    longest_name_len = longest_name_len.max(name.len());
+                    names.push((stats.st_uid, name));
                 }
-                longest_name_len = longest_name_len.max(name.len());
-                names.push((stats.st_uid, name));
             }
         }
     }

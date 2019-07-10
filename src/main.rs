@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 #![feature(lang_items, alloc_error_handler)]
-#![feature(ptr_offset_from)]
 
 #[lang = "eh_personality"]
 #[no_mangle]
@@ -63,8 +62,8 @@ impl<'a> CStr<'a> {
     }
 }
 
-impl<'a> AsRef<[u8]> for CStr<'a> {
-    fn as_ref(&self) -> &[u8] {
+impl<'a> Writable for CStr<'a> {
+    fn as_bytes(&self) -> &[u8] {
         self.bytes
     }
 }
@@ -107,19 +106,42 @@ fn run(args: &[CStr]) -> Result<(), Error> {
     }
 
     let show_all = options.contains(&b'a');
+    let multiple_args = args.len() > 1;
 
-    for arg in args.into_iter() {
-        let dir = match Directory::open(arg) {
-            Ok(d) => d,
-            Err(2) => return out.write(b"path doesn't exist (ENOENT)\n"),
-            Err(13) => return out.write(b"access denied (EACCES)\n"),
-            Err(20) => return out.write(b"path isn't a directory (ENOTDIR)\n"),
-            Err(e) => return Err(e)?,
-        };
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
 
-        //let hint = dir.iter().size_hint();
+    for arg in args {
+        match Directory::open(arg) {
+            Ok(d) => dirs.push((arg, d)),
+            Err(20) => files.push(arg),
+            Err(2) => {
+                out.write(arg)?;
+                out.write(b": No such file or directory\n")?;
+            }
+            Err(13) => {
+                out.write(arg)?;
+                out.write(b": Permission denied\n")?;
+            }
+            Err(e) => {
+                out.write(arg)?;
+                out.write(b": OS error ")?;
+                let mut buf = itoa::Buffer::new();
+                out.write(buf.format(e).as_bytes())?;
+                out.push(b'\n')?;
+            }
+        }
+    }
+
+    for f in files {
+        out.write(f)?;
+        out.push(b'\n')?;
+    }
+
+    for (n, (name, dir)) in dirs.iter().enumerate() {
+        let hint = dir.iter().size_hint();
         let mut entries: SmallVec<[DirEntry; 32]> = SmallVec::new();
-        //entries.reserve(hint.1.unwrap_or(hint.0));
+        entries.reserve(hint.1.unwrap_or(hint.0));
 
         if show_all {
             for e in dir.iter() {
@@ -133,14 +155,23 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
         entries.sort_by(|a, b| vercmp(a.name(), b.name()));
 
+        if multiple_args {
+            out.write(*name)?;
+            out.write(b":\n")?;
+        }
+
         if let Ok(width) = terminal_width {
             if options.contains(&b'l') {
-                write_details(arg, &entries, &mut out)?;
+                write_details(*name, &entries, &mut out)?;
             } else {
                 write_grid(&entries, &mut out, width)?;
             }
         } else {
             write_single_column(&entries, &mut out)?;
+        }
+
+        if multiple_args && n != dirs.len() - 1 {
+            out.push(b'\n')?;
         }
     }
 
