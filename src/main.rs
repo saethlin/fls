@@ -29,7 +29,7 @@ mod error;
 mod output;
 mod style;
 
-use directory::{DirEntry, Directory};
+use directory::{DirEntry, Directory, RawDirEntry};
 use error::Error;
 use output::*;
 use style::Style;
@@ -45,7 +45,7 @@ pub struct CStr<'a> {
 impl<'a> CStr<'a> {
     pub unsafe fn from_ptr(ptr: *const u8) -> CStr<'a> {
         CStr {
-            bytes: core::slice::from_raw_parts(ptr, libc::strlen(ptr as *const i8) + 1),
+            bytes: core::slice::from_raw_parts(ptr, libc::strlen(ptr as *const i8)),
         }
     }
 
@@ -114,7 +114,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
     for arg in args {
         match Directory::open(arg) {
             Ok(d) => dirs.push((arg, d)),
-            Err(20) => files.push(arg),
+            Err(20) => files.push(crate::directory::File { path: arg }),
             Err(2) => {
                 out.write(arg)?;
                 out.write(b": No such file or directory\n")?;
@@ -133,14 +133,25 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         }
     }
 
-    for f in files {
-        out.write(f)?;
+    files.sort_by(|a, b| vercmp(a.name(), b.name()));
+
+    if let Ok(width) = terminal_width {
+        if options.contains(&b'l') {
+            write_details(CStr { bytes: b".\0" }, &files, &mut out)?;
+        } else {
+            write_grid(&files, &mut out, width)?;
+        }
+    } else {
+        write_single_column(&files, &mut out)?;
+    }
+
+    if !dirs.is_empty() && !files.is_empty() {
         out.push(b'\n')?;
     }
 
     for (n, (name, dir)) in dirs.iter().enumerate() {
         let hint = dir.iter().size_hint();
-        let mut entries: SmallVec<[DirEntry; 32]> = SmallVec::new();
+        let mut entries: SmallVec<[RawDirEntry; 32]> = SmallVec::new();
         entries.reserve(hint.1.unwrap_or(hint.0));
 
         if show_all {

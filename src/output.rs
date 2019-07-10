@@ -21,15 +21,13 @@ struct ShortStats {
     mtime: i64,
 }
 
-pub fn write_details(
+pub fn write_details<T: DirEntry>(
     root: CStr,
-    entries: &[DirEntry],
+    entries: &[T],
     out: &mut BufferedStdout,
 ) -> Result<(), Error> {
     use core::iter::FromIterator;
-    let mut path = Vec::from_iter(root.iter().cloned());
-    path.pop();
-    path.push(b'/');
+    let mut path = Vec::new();
 
     let mut all_stats: Vec<ShortStats> = Vec::with_capacity(entries.len());
 
@@ -37,16 +35,29 @@ pub fn write_details(
     let mut names = Vec::new();
 
     for e in entries {
-        path.extend_from_slice(e.name_with_nul());
         let mut stats = Stats::default();
-        unsafe {
-            let ret = syscall::syscall!(LSTAT, path.as_ptr(), (&mut stats) as *mut Stats) as isize;
-            if ret < 0 {
-                return Err(Error(-ret));
+        if e.name().get(0) != Some(&b'/') {
+            path.clear();
+            path.extend(root.iter().cloned());
+            path.push(b'/');
+            path.extend_from_slice(e.name());
+            path.push(0);
+            unsafe {
+                let ret =
+                    syscall::syscall!(LSTAT, path.as_ptr(), (&mut stats) as *mut Stats) as isize;
+                if ret < 0 {
+                    out.write(path.as_slice())?;
+                    return Err(Error(-ret));
+                }
             }
-        }
-        while path.last() != Some(&b'/') {
-            path.pop();
+        } else {
+            unsafe {
+                let ret = syscall::syscall!(LSTAT, e.name().as_ptr(), (&mut stats) as *mut Stats)
+                    as isize;
+                if ret < 0 {
+                    return Err(Error(-ret));
+                }
+            }
         }
 
         all_stats.push(ShortStats {
@@ -365,8 +376,8 @@ fn len_utf8(s: &[u8]) -> usize {
     }
 }
 
-pub fn write_grid(
-    entries: &[DirEntry],
+pub fn write_grid<T: DirEntry>(
+    entries: &[T],
     out: &mut BufferedStdout,
     terminal_width: usize,
 ) -> Result<(), Error> {
@@ -412,7 +423,10 @@ pub fn write_grid(
     Ok(())
 }
 
-pub fn write_single_column(entries: &[DirEntry], out: &mut BufferedStdout) -> Result<(), Error> {
+pub fn write_single_column<T: DirEntry>(
+    entries: &[T],
+    out: &mut BufferedStdout,
+) -> Result<(), Error> {
     for e in entries {
         out.write(e.name())?;
         out.push(b'\n')?;

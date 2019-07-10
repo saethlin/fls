@@ -79,7 +79,7 @@ pub struct IterDir<'a> {
 }
 
 impl<'a> Iterator for IterDir<'a> {
-    type Item = DirEntry<'a>;
+    type Item = RawDirEntry<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         unsafe {
@@ -87,7 +87,7 @@ impl<'a> Iterator for IterDir<'a> {
                 self.directory.dirents.as_ptr().offset(self.offset) as *const libc::dirent64;
 
             let entry = if self.offset < self.directory.bytes_used {
-                Some(DirEntry {
+                Some(RawDirEntry {
                     directory: self.directory,
                     offset: self.offset,
                     name_len: libc::strlen((*dirent_ptr).d_name.as_ptr()),
@@ -112,27 +112,18 @@ impl<'a> Iterator for IterDir<'a> {
     }
 }
 
-pub struct DirEntry<'a> {
+pub trait DirEntry {
+    fn name(&self) -> &[u8];
+    fn style(&self) -> Result<Style, Error>;
+}
+
+pub struct RawDirEntry<'a> {
     directory: &'a Directory,
     offset: isize,
     name_len: usize,
 }
 
-impl<'a> DirEntry<'a> {
-    pub fn name_with_nul(&self) -> &[u8] {
-        unsafe { core::slice::from_raw_parts(self.name_ptr() as *const u8, self.name_len + 1) }
-    }
-
-    pub fn name(&self) -> &[u8] {
-        unsafe { core::slice::from_raw_parts(self.name_ptr() as *const u8, self.name_len) }
-    }
-
-    fn d_type(&self) -> u8 {
-        unsafe {
-            (*(self.directory.dirents.as_ptr().offset(self.offset) as *const libc::dirent64)).d_type
-        }
-    }
-
+impl<'a> RawDirEntry<'a> {
     fn name_ptr(&self) -> *const libc::c_char {
         unsafe {
             let dirent_ptr =
@@ -141,7 +132,19 @@ impl<'a> DirEntry<'a> {
         }
     }
 
-    pub fn style(&self) -> Result<Style, Error> {
+    fn d_type(&self) -> u8 {
+        unsafe {
+            (*(self.directory.dirents.as_ptr().offset(self.offset) as *const libc::dirent64)).d_type
+        }
+    }
+}
+
+impl<'a> DirEntry for RawDirEntry<'a> {
+    fn name(&self) -> &[u8] {
+        unsafe { core::slice::from_raw_parts(self.name_ptr() as *const u8, self.name_len) }
+    }
+
+    fn style(&self) -> Result<Style, Error> {
         /*
         pub enum DType {
             Fifo = 1,
@@ -173,6 +176,33 @@ impl<'a> DirEntry<'a> {
                 }
             },
             _ => Ok(Style::White),
+        }
+    }
+}
+
+pub struct File<'a> {
+    pub path: CStr<'a>,
+}
+
+use crate::output::Writable;
+impl<'a> DirEntry for File<'a> {
+    fn name(&self) -> &[u8] {
+        self.path.as_bytes()
+    }
+
+    fn style(&self) -> Result<Style, Error> {
+        let fd = unsafe {
+            syscall!(OPEN, self.path.as_ptr(), O_RDONLY | O_DIRECTORY | O_CLOEXEC) as isize
+        };
+        if fd >= 0 {
+            unsafe { syscall!(CLOSE, fd) };
+            return Ok(Style::BlueBold);
+        }
+
+        if -fd == libc::ENOTDIR as isize {
+            Ok(style_for(self.name()))
+        } else {
+            Err(-fd)?
         }
     }
 }
