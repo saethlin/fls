@@ -1,5 +1,5 @@
-#![no_std]
 #![no_main]
+#![no_std]
 #![feature(lang_items, alloc_error_handler)]
 
 #[lang = "eh_personality"]
@@ -12,23 +12,26 @@ pub extern "C" fn rust_eh_unwind_resume() {}
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
+    unsafe { libc::abort() }
 }
 
 #[alloc_error_handler]
 fn alloc_error(_: core::alloc::Layout) -> ! {
-    loop {}
+    unsafe { libc::abort() }
 }
 
 extern crate alloc;
 use alloc::vec::Vec;
 use smallvec::SmallVec;
 
+mod cstr;
 mod directory;
 mod error;
 mod output;
 mod style;
+mod syscalls;
 
+use cstr::CStr;
 use directory::{DirEntry, Directory, RawDirEntry};
 use error::Error;
 use output::*;
@@ -36,37 +39,6 @@ use style::Style;
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-
-#[derive(Clone, Copy)]
-pub struct CStr<'a> {
-    bytes: &'a [u8],
-}
-
-impl<'a> CStr<'a> {
-    pub unsafe fn from_ptr(ptr: *const u8) -> CStr<'a> {
-        CStr {
-            bytes: core::slice::from_raw_parts(ptr, libc::strlen(ptr as *const i8)),
-        }
-    }
-
-    pub fn get(&self, i: usize) -> Option<&u8> {
-        self.bytes.get(i)
-    }
-
-    fn iter(&self) -> impl Iterator<Item = &u8> {
-        self.bytes.iter()
-    }
-
-    fn as_ptr(&self) -> *const u8 {
-        self.bytes.as_ptr()
-    }
-}
-
-impl<'a> Writable for CStr<'a> {
-    fn as_bytes(&self) -> &[u8] {
-        self.bytes
-    }
-}
 
 #[no_mangle]
 pub extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
@@ -87,11 +59,11 @@ pub extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
 fn run(args: &[CStr]) -> Result<(), Error> {
     let mut out = BufferedStdout::new();
 
-    let terminal_width = terminal_size().map(|d| d.ws_col as usize);
+    let terminal_width = syscalls::winsize().map(|d| d.ws_col as usize);
 
     let mut options: SmallVec<[u8; 8]> = SmallVec::new();
     for a in args.iter().skip(1).take_while(|a| a.get(0) == Some(&b'-')) {
-        options.extend(a.iter().cloned().take_while(|a| *a != 0));
+        options.extend_from_slice(a.as_bytes());
     }
 
     let mut args: Vec<_> = args
@@ -100,12 +72,11 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         .skip(1)
         .skip_while(|a| a.get(0) == Some(&b'-'))
         .collect();
-    let cwd = CStr { bytes: &b".\0"[..] };
     if args.is_empty() {
-        args.push(cwd);
+        args.push(CStr::from_bytes(b".\0"));
     }
 
-    args.sort_by(|a, b| vercmp(a.bytes, b.bytes));
+    args.sort_by(|a, b| vercmp(a.as_bytes(), b.as_bytes()));
 
     let show_all = options.contains(&b'a');
     let multiple_args = args.len() > 1;
@@ -116,12 +87,12 @@ fn run(args: &[CStr]) -> Result<(), Error> {
     for arg in args {
         match Directory::open(arg) {
             Ok(d) => dirs.push((arg, d)),
-            Err(20) => files.push(crate::directory::File { path: arg }),
-            Err(2) => {
+            Err(Error(20)) => files.push(crate::directory::File { path: arg }),
+            Err(Error(2)) => {
                 out.write(arg)?;
                 out.write(b": No such file or directory\n")?;
             }
-            Err(13) => {
+            Err(Error(13)) => {
                 out.write(arg)?;
                 out.write(b": Permission denied\n")?;
             }
@@ -129,7 +100,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
                 out.write(arg)?;
                 out.write(b": OS error ")?;
                 let mut buf = itoa::Buffer::new();
-                out.write(buf.format(e).as_bytes())?;
+                out.write(buf.format(e.0).as_bytes())?;
                 out.push(b'\n')?;
             }
         }
@@ -137,7 +108,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
     if let Ok(width) = terminal_width {
         if options.contains(&b'l') {
-            write_details(CStr { bytes: b".\0" }, &files, &mut out)?;
+            write_details(CStr::from_bytes(b".\0"), &files, &mut out)?;
         } else {
             write_grid(&files, &mut out, width)?;
         }
@@ -189,23 +160,6 @@ fn run(args: &[CStr]) -> Result<(), Error> {
     Ok(())
 }
 
-fn terminal_size() -> Result<libc::winsize, Error> {
-    unsafe {
-        let mut winsize: libc::winsize = core::mem::zeroed();
-        let ret = syscall::syscall!(
-            IOCTL,
-            libc::STDOUT_FILENO,
-            libc::TIOCGWINSZ,
-            &mut winsize as *mut libc::winsize
-        ) as isize;
-        if ret < 0 {
-            Err(-ret)?
-        } else {
-            Ok(winsize)
-        }
-    }
-}
-
 use core::cmp::Ordering;
 fn vercmp(s1: &[u8], s2: &[u8]) -> Ordering {
     let mut s1_pos: usize = 0;
@@ -216,10 +170,10 @@ fn vercmp(s1: &[u8], s2: &[u8]) -> Ordering {
         while (s1_pos < s1.len() && !s1.digit_at(s1_pos))
             || (s2_pos < s2.len() && !s2.digit_at(s2_pos))
         {
-            let s1_c = s1.get(s1_pos);
-            let s2_c = s2.get(s2_pos);
+            let s1_c = s1.get(s1_pos).map(u8::to_ascii_lowercase);
+            let s2_c = s2.get(s2_pos).map(u8::to_ascii_lowercase);
             if s1_c != s2_c {
-                return s1_c.cmp(&s2_c);;
+                return s1_c.cmp(&s2_c);
             }
             s1_pos += 1;
             s2_pos += 1;
@@ -248,7 +202,7 @@ fn vercmp(s1: &[u8], s2: &[u8]) -> Ordering {
             return first_diff;
         }
     }
-    return Ordering::Equal;
+    Ordering::Equal
 }
 
 trait SliceExt {

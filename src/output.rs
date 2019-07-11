@@ -1,22 +1,15 @@
 use crate::directory::DirEntry;
+use crate::syscalls;
 use crate::{CStr, Error, Style};
 use alloc::vec;
 use alloc::vec::Vec;
 use smallvec::{smallvec, SmallVec};
 
-const S_IXUSR: u32 = 64;
-const S_IWUSR: u32 = 128;
-const S_IRUSR: u32 = 256;
-const S_IXGRP: u32 = 8;
-const S_IWGRP: u32 = 16;
-const S_IRGRP: u32 = 32;
-const S_IXOTH: u32 = 1;
-const S_IWOTH: u32 = 2;
-const S_IROTH: u32 = 4;
+use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR};
 
 struct ShortStats {
     mode: u32,
-    size: u64,
+    size: i64,
     uid: u32,
     mtime: i64,
 }
@@ -34,36 +27,24 @@ pub fn write_details<T: DirEntry>(
     let mut names = Vec::new();
 
     for e in entries {
-        let mut stats = Stats::default();
+        let mut stats: libc::stat64 = unsafe { core::mem::zeroed() };
         if e.name().get(0) != Some(&b'/') {
             path.clear();
-            path.extend(root.iter().cloned());
+            path.extend_from_slice(root.as_bytes());
+            path.pop();
             path.push(b'/');
             path.extend_from_slice(e.name());
             path.push(0);
-            unsafe {
-                let ret =
-                    syscall::syscall!(LSTAT, path.as_ptr(), (&mut stats) as *mut Stats) as isize;
-                if ret < 0 {
-                    out.write(path.as_slice())?;
-                    return Err(Error(-ret));
-                }
-            }
+            syscalls::lstat(path.as_slice(), &mut stats)?;
         } else {
-            unsafe {
-                let ret = syscall::syscall!(LSTAT, e.name().as_ptr(), (&mut stats) as *mut Stats)
-                    as isize;
-                if ret < 0 {
-                    return Err(Error(-ret));
-                }
-            }
+            syscalls::lstat(e.name(), &mut stats)?;
         }
 
         all_stats.push(ShortStats {
             mode: stats.st_mode,
             size: stats.st_size,
             uid: stats.st_uid,
-            mtime: stats.st_mtim.tv_sec,
+            mtime: stats.st_mtime,
         });
 
         if !names.iter().any(|(uid, _)| *uid == stats.st_uid) {
@@ -91,20 +72,7 @@ pub fn write_details<T: DirEntry>(
     }
 
     let current_year = unsafe {
-        let mut localtime = libc::tm {
-            tm_sec: 0,
-            tm_min: 0,
-            tm_hour: 0,
-            tm_mday: 0,
-            tm_mon: 0,
-            tm_year: 0,
-            tm_wday: 0,
-            tm_yday: 0,
-            tm_isdst: 0,
-            tm_gmtoff: 0,
-            tm_zone: core::ptr::null_mut(),
-        };
-
+        let mut localtime = core::mem::zeroed();
         let time = libc::time(core::ptr::null_mut());
         libc::localtime_r(&time, &mut localtime);
         localtime.tm_year
@@ -271,8 +239,10 @@ pub fn write_details<T: DirEntry>(
             .unwrap_or_default();
         out.write(name.as_ref())?;
         // pad out to the length of the longest name
-        for _ in 0..longest_name_len - name.len() as usize {
-            out.push(b' ')?;
+        if name.len() < longest_name_len {
+            for _ in 0..longest_name_len - name.len() as usize {
+                out.push(b' ')?;
+            }
         }
         out.push(b' ')?;
 
@@ -335,39 +305,14 @@ pub fn write_details<T: DirEntry>(
     Ok(())
 }
 
-#[repr(C)]
-#[derive(Default)]
-struct Stats {
-    st_dev: u64,
-    st_ino: u64,
-    st_nlink: u64,
-
-    st_mode: u32,
-    st_uid: u32,
-    st_gid: u32,
-    _padding: u32,
-    st_rdev: u64,
-    st_size: u64,
-    st_blksize: u64,
-    st_blocks: u64,
-
-    st_atim: Timespec,
-    st_mtim: Timespec,
-    st_ctim: Timespec,
-    _unused: [u32; 3],
-}
-
-#[repr(C)]
-#[derive(Default)]
-struct Timespec {
-    tv_sec: i64,
-    tv_nsec: i64,
-}
-
 fn len_utf8(s: &[u8]) -> usize {
     use unicode_segmentation::UnicodeSegmentation;
     if s.iter().all(|c| c.is_ascii()) {
-        s.len()
+        if s.last() == Some(&0) {
+            s.len() - 1
+        } else {
+            s.len()
+        }
     } else {
         core::str::from_utf8(s)
             .map(|s| s.graphemes(false).count())
@@ -375,44 +320,43 @@ fn len_utf8(s: &[u8]) -> usize {
     }
 }
 
+#[inline(never)]
 pub fn write_grid<T: DirEntry>(
     entries: &[T],
     out: &mut BufferedStdout,
     terminal_width: usize,
 ) -> Result<(), Error> {
-    let mut columns = 1;
-    let mut widths: SmallVec<[usize; 16]> = match entries.iter().map(|e| e.name().len()).max() {
-        Some(max_len) => smallvec![max_len],
+    let mut rows = entries.len();
+    let lengths: Vec<_> = entries.iter().map(|e| len_utf8(e.name())).collect();
+    let mut widths: SmallVec<[usize; 16]> = match lengths.iter().max() {
+        Some(max_len) => smallvec![*max_len],
         None => return Ok(()), // No entries, nothing to do here
     };
-    for n_columns in 1..=entries.len() {
-        let mut tmp_widths: SmallVec<[usize; 16]> = smallvec![0; n_columns];
-        let entries_per_column =
-            entries.len() / n_columns + ((entries.len() % n_columns != 0) as usize);
-        for (c, column) in entries.chunks(entries_per_column).enumerate() {
-            tmp_widths[c] = column.iter().map(|e| len_utf8(e.name())).max().unwrap_or(1) + 2;
+
+    for tmp_rows in (1..entries.len()).rev() {
+        let mut tmp_widths: SmallVec<[usize; 16]> = SmallVec::new();
+        for column in lengths.chunks(tmp_rows) {
+            let width = column.iter().max().map(|m| *m).unwrap_or(1) + 2;
+            tmp_widths.push(width);
         }
-        if tmp_widths.iter().sum::<usize>() > terminal_width as usize {
-            break;
-        } else {
-            columns = n_columns;
+        tmp_widths.last_mut().map(|w| *w -= 2);
+        if tmp_widths.iter().sum::<usize>() <= terminal_width {
+            rows = tmp_rows;
             widths = tmp_widths;
         }
     }
 
-    let rows = entries.len() / columns + ((entries.len() % columns != 0) as usize);
-
     for r in 0..rows {
         for (c, width) in widths.iter().enumerate() {
-            let e = match entries.get(c * rows + r) {
-                Some(e) => e,
-                None => break,
+            let (e, name_len) = match (entries.get(c * rows + r), lengths.get(c * rows + r)) {
+                (Some(e), Some(name_len)) => (e, name_len),
+                _ => continue,
             };
 
             out.style(e.style()?)?;
             out.write(e.name())?;
 
-            for _ in 0..width - len_utf8(e.name()) {
+            for _ in 0..width - name_len {
                 out.push(b' ')?;
             }
         }
@@ -477,7 +421,7 @@ impl BufferedStdout {
 
     pub fn write<T: Writable>(&mut self, item: T) -> Result<(), Error> {
         for b in item.as_bytes() {
-            if let Err(_) = self.buf.try_push(*b) {
+            if self.buf.try_push(*b).is_err() {
                 write_to_stdout(&self.buf)?;
                 self.buf.clear();
                 self.buf.push(*b);
@@ -487,7 +431,7 @@ impl BufferedStdout {
     }
 
     pub fn push(&mut self, b: u8) -> Result<(), Error> {
-        if let Err(_) = self.buf.try_push(b) {
+        if self.buf.try_push(b).is_err() {
             write_to_stdout(&self.buf)?;
             self.buf.clear();
             self.buf.push(b);
@@ -510,22 +454,10 @@ impl Drop for BufferedStdout {
     }
 }
 
-fn write_to_stdout(bytes: &[u8]) -> Result<(), i32> {
-    unsafe {
-        let mut bytes_written = 0;
-        while bytes_written < bytes.len() {
-            let ret = syscall::syscall!(
-                WRITE,
-                1,
-                bytes.as_ptr().offset(bytes_written as isize),
-                bytes.len() - bytes_written
-            ) as i32;
-            if ret < 0 {
-                return Err(-ret);
-            } else {
-                bytes_written += ret as usize;
-            }
-        }
+fn write_to_stdout(bytes: &[u8]) -> Result<(), Error> {
+    let mut bytes_written = 0;
+    while bytes_written < bytes.len() {
+        bytes_written += syscalls::write(libc::STDOUT_FILENO, &bytes[bytes_written..])?;
     }
     Ok(())
 }
