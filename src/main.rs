@@ -127,7 +127,9 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
         if show_all {
             for e in dir.iter() {
-                entries.push(e)
+                if e.name() != b".." && e.name() != b"." {
+                    entries.push(e)
+                }
             }
         } else {
             for e in dir.iter().filter(|e| e.name().get(0) != Some(&b'.')) {
