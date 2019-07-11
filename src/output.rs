@@ -320,18 +320,30 @@ fn len_utf8(s: &[u8]) -> usize {
     }
 }
 
-#[inline(never)]
 pub fn write_grid<T: DirEntry>(
     entries: &[T],
     out: &mut BufferedStdout,
     terminal_width: usize,
 ) -> Result<(), Error> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+
     let mut rows = entries.len();
-    let lengths: Vec<_> = entries.iter().map(|e| len_utf8(e.name())).collect();
-    let mut widths: SmallVec<[usize; 16]> = match lengths.iter().max() {
-        Some(max_len) => smallvec![*max_len],
-        None => return Ok(()), // No entries, nothing to do here
-    };
+    let mut lengths = Vec::with_capacity(entries.len());
+    let mut min_len = len_utf8(entries[0].name());
+    for e in entries {
+        let len = len_utf8(e.name());
+        lengths.push(len);
+        min_len = min_len.min(len);
+    }
+    let mut widths: SmallVec<[usize; 16]> = lengths
+        .iter()
+        .max()
+        .map(|max_len| smallvec![*max_len])
+        .unwrap();
+
+    let max_columns = terminal_width / min_len;
 
     for tmp_rows in (1..entries.len()).rev() {
         let mut tmp_widths: SmallVec<[usize; 16]> = SmallVec::new();
@@ -339,6 +351,11 @@ pub fn write_grid<T: DirEntry>(
             let width = column.iter().max().map(|m| *m).unwrap_or(1) + 2;
             tmp_widths.push(width);
         }
+        // Try to exit early if we're in a huge directory
+        if tmp_widths.len() > max_columns {
+            break;
+        }
+
         tmp_widths.last_mut().map(|w| *w -= 2);
         if tmp_widths.iter().sum::<usize>() <= terminal_width {
             rows = tmp_rows;
@@ -363,6 +380,7 @@ pub fn write_grid<T: DirEntry>(
         out.style(Style::Reset)?;
         out.push(b'\n')?;
     }
+
     Ok(())
 }
 
