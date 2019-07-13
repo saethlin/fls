@@ -27,18 +27,17 @@ pub fn write_details<T: DirEntry>(
     let mut names = Vec::new();
 
     for e in entries {
-        let mut stats: libc::stat64 = unsafe { core::mem::zeroed() };
-        if e.name().get(0) != Some(&b'/') {
+        let stats = if e.name().get(0) != Some(&b'/') {
             path.clear();
             path.extend_from_slice(root.as_bytes());
             path.pop();
             path.push(b'/');
-            path.extend_from_slice(e.name());
+            path.extend_from_slice(e.name().as_bytes());
             path.push(0);
-            syscalls::lstat(path.as_slice(), &mut stats)?;
+            syscalls::lstat(CStr::from_bytes(path.as_slice()))?
         } else {
-            syscalls::lstat(e.name(), &mut stats)?;
-        }
+            syscalls::lstat(e.name())?
+        };
 
         all_stats.push(ShortStats {
             mode: stats.st_mode,
@@ -297,27 +296,12 @@ pub fn write_details<T: DirEntry>(
 
         out.push(b' ')?;
 
-        out.style(e.style()?)?;
+        out.style(e.style())?;
         out.write(e.name())?;
         out.style(Style::Reset)?;
         out.push(b'\n')?;
     }
     Ok(())
-}
-
-fn len_utf8(s: &[u8]) -> usize {
-    use unicode_segmentation::UnicodeSegmentation;
-    if s.iter().all(|c| c.is_ascii()) {
-        if s.last() == Some(&0) {
-            s.len() - 1
-        } else {
-            s.len()
-        }
-    } else {
-        core::str::from_utf8(s)
-            .map(|s| s.graphemes(false).count())
-            .unwrap_or_else(|_| s.len())
-    }
 }
 
 pub fn write_grid<T: DirEntry>(
@@ -330,10 +314,10 @@ pub fn write_grid<T: DirEntry>(
     }
 
     let mut rows = entries.len();
-    let mut lengths = Vec::with_capacity(entries.len());
-    let mut min_len = len_utf8(entries[0].name());
+    let mut lengths: Vec<usize> = Vec::with_capacity(entries.len());
+    let mut min_len: usize = entries[0].name().len_utf8();
     for e in entries {
-        let len = len_utf8(e.name());
+        let len = e.name().len_utf8();
         lengths.push(len);
         min_len = min_len.min(len);
     }
@@ -370,10 +354,10 @@ pub fn write_grid<T: DirEntry>(
                 _ => continue,
             };
 
-            out.style(e.style()?)?;
+            out.style(e.style())?;
             out.write(e.name())?;
 
-            for _ in 0..width - name_len {
+            for _ in 0..(width - name_len) {
                 out.push(b' ')?;
             }
         }

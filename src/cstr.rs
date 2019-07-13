@@ -1,4 +1,5 @@
 use crate::Writable;
+use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Clone, Copy)]
 pub struct CStr<'a> {
@@ -13,7 +14,10 @@ impl<'a> CStr<'a> {
     }
 
     pub fn from_bytes(bytes: &'a [u8]) -> CStr<'a> {
-        assert!(bytes.last() == Some(&0));
+        assert!(
+            bytes.last() == Some(&0),
+            "attempted to construct a CStr from a slice without a null terminator"
+        );
         CStr { bytes }
     }
 
@@ -23,6 +27,20 @@ impl<'a> CStr<'a> {
 
     pub fn as_ptr(&self) -> *const u8 {
         self.bytes.as_ptr()
+    }
+
+    pub fn len_utf8(&self) -> usize {
+        if self.bytes.iter().all(|c| c.is_ascii()) {
+            if self.bytes.last() == Some(&0) {
+                self.bytes.len() - 1
+            } else {
+                self.bytes.len()
+            }
+        } else {
+            core::str::from_utf8(self.bytes)
+                .map(|s| s.graphemes(false).count())
+                .unwrap_or_else(|_| self.bytes.len())
+        }
     }
 }
 

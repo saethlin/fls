@@ -26,13 +26,12 @@ pub fn open_dir(path: CStr) -> Result<c_int, Error> {
     ret.to_result(ret as c_int)
 }
 
-// TODO: This should take a CStr
-pub fn lstat(path: &[u8], stats: &mut libc::stat64) -> Result<(), Error> {
-    if path.last() != Some(&0) {
-        return Err(libc::EFAULT)?;
+pub fn lstat(path: CStr) -> Result<libc::stat64, Error> {
+    unsafe {
+        let mut stats = core::mem::zeroed();
+        let ret = syscall!(LSTAT, path.as_ptr(), &mut stats as *mut libc::stat64) as isize;
+        ret.to_result(stats)
     }
-    let ret = unsafe { syscall!(LSTAT, path.as_ptr(), stats as *mut libc::stat64) } as isize;
-    ret.to_result(())
 }
 
 pub fn getdents64(fd: c_int, buf: &mut [u8]) -> Result<usize, Error> {
@@ -40,8 +39,7 @@ pub fn getdents64(fd: c_int, buf: &mut [u8]) -> Result<usize, Error> {
     ret.to_result(ret as usize)
 }
 
-// TODO: This should take a CStr
-pub fn faccessat(fd: c_int, name: &[u8], mode: c_int) -> Result<(), Error> {
+pub fn faccessat(fd: c_int, name: CStr, mode: c_int) -> Result<(), Error> {
     let ret = unsafe { syscall!(FACCESSAT, fd, name.as_ptr(), mode) } as isize;
     ret.to_result(())
 }

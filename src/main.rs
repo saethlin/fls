@@ -80,7 +80,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         args.push(CStr::from_bytes(b".\0"));
     }
 
-    args.sort_by(|a, b| vercmp(a.as_bytes(), b.as_bytes()));
+    args.sort_by(|a, b| vercmp(*a, *b));
 
     let show_all = switches.contains(&b'a');
     let multiple_args = args.len() > 1;
@@ -131,7 +131,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
         if show_all {
             for e in dir.iter() {
-                if e.name() != b".." && e.name() != b"." {
+                if e.name().as_bytes() != b".." && e.name().as_bytes() != b"." {
                     entries.push(e)
                 }
             }
@@ -167,7 +167,9 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 }
 
 use core::cmp::Ordering;
-fn vercmp(s1: &[u8], s2: &[u8]) -> Ordering {
+fn vercmp(s1_cstr: CStr, s2_cstr: CStr) -> Ordering {
+    let s1 = s1_cstr.as_bytes();
+    let s2 = s2_cstr.as_bytes();
     let mut s1_pos: usize = 0;
     let mut s2_pos: usize = 0;
 

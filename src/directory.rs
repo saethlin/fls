@@ -7,6 +7,7 @@ pub struct Directory {
     fd: c_int,
     dirents: SmallVec<[u8; 4096]>,
     bytes_used: isize,
+    path: alloc::vec::Vec<u8>,
 }
 
 impl Drop for Directory {
@@ -37,6 +38,7 @@ impl<'a> Directory {
             fd: fd as i32,
             dirents,
             bytes_used: bytes_used as isize,
+            path: path.as_bytes().to_vec(),
         })
     }
 
@@ -88,8 +90,8 @@ impl<'a> Iterator for IterDir<'a> {
 }
 
 pub trait DirEntry {
-    fn name(&self) -> &[u8];
-    fn style(&self) -> Result<Style, Error>;
+    fn name(&self) -> CStr;
+    fn style(&self) -> Style;
 }
 
 pub struct RawDirEntry<'a> {
@@ -115,11 +117,13 @@ impl<'a> RawDirEntry<'a> {
 }
 
 impl<'a> DirEntry for RawDirEntry<'a> {
-    fn name(&self) -> &[u8] {
-        unsafe { core::slice::from_raw_parts(self.name_ptr() as *const u8, self.name_len) }
+    fn name(&self) -> CStr {
+        let slice =
+            unsafe { core::slice::from_raw_parts(self.name_ptr() as *const u8, self.name_len + 1) };
+        CStr::from_bytes(slice)
     }
 
-    fn style(&self) -> Result<Style, Error> {
+    fn style(&self) -> Style {
         match self.d_type() {
             libc::DT_DIR => Ok(Style::BlueBold),
             libc::DT_LNK => syscalls::faccessat(self.directory.fd, self.name(), libc::F_OK)
@@ -135,14 +139,49 @@ impl<'a> DirEntry for RawDirEntry<'a> {
                 .map(|_| Style::GreenBold)
                 .or_else(|e| {
                     if e.0 == libc::EACCES as isize {
-                        Ok(style_for(self.name()))
+                        Ok(style_for(self.name().as_bytes()))
                     } else {
                         Err(e)
                     }
                 }),
+            libc::DT_UNKNOWN => {
+                let mut path = self.directory.path.clone();
+                path.pop();
+                if path.last() != Some(&b'/') {
+                    path.push(b'/');
+                }
+                path.extend_from_slice(self.name().as_bytes());
+                if path.last() != Some(&0) {
+                    path.push(0);
+                }
+                match syscalls::lstat(CStr::from_bytes(path.as_slice())) {
+                    Err(e) => Err(e),
+                    Ok(stats) => {
+                        let mode = stats.st_mode;
+                        let entry_type = mode & libc::S_IFMT;
+                        match entry_type {
+                            libc::S_IFLNK => {
+                                syscalls::faccessat(self.directory.fd, self.name(), libc::F_OK)
+                                    .map(|_| Style::CyanBold)
+                                    .or_else(|e| {
+                                        if e.0 == libc::ENOENT as isize {
+                                            Ok(Style::RedBold)
+                                        } else {
+                                            Err(e)
+                                        }
+                                    })
+                            }
+                            libc::S_IFDIR => Ok(Style::BlueBold),
+                            libc::S_IFREG => Ok(Style::White),
+                            _ => Ok(Style::White),
+                        }
+                    }
+                }
+            }
 
             _ => Ok(Style::White),
         }
+        .unwrap_or(Style::White)
     }
 }
 
@@ -152,21 +191,21 @@ pub struct File<'a> {
 
 use crate::output::Writable;
 impl<'a> DirEntry for File<'a> {
-    fn name(&self) -> &[u8] {
-        self.path.as_bytes()
+    fn name(&self) -> CStr {
+        self.path
     }
 
-    fn style(&self) -> Result<Style, Error> {
+    fn style(&self) -> Style {
         match syscalls::open_dir(self.path) {
             Ok(fd) => {
                 let _ = syscalls::close(fd);
-                Ok(Style::BlueBold)
+                Style::BlueBold
             }
             Err(Error(code)) => {
                 if code == libc::ENOTDIR as isize {
-                    Ok(style_for(self.name()))
+                    style_for(self.name().as_bytes())
                 } else {
-                    Err(Error(code))
+                    Style::White
                 }
             }
         }
@@ -176,7 +215,7 @@ impl<'a> DirEntry for File<'a> {
 fn style_for(name: &[u8]) -> Style {
     let extension = match name.rsplit(|b| *b == b'.').next() {
         None => return Style::White,
-        Some(ext) => ext,
+        Some(ext) => &ext[..ext.len() - 1],
     };
     let compressed: &[&[u8]] = &[b"tar", b"gz", b"tgz", b"xz"];
     let document: &[&[u8]] = &[b"pdf", b"eps"];
