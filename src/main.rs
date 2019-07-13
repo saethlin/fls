@@ -61,9 +61,13 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
     let terminal_width = syscalls::winsize().map(|d| d.ws_col as usize);
 
-    let mut options: SmallVec<[u8; 8]> = SmallVec::new();
-    for a in args.iter().skip(1).take_while(|a| a.get(0) == Some(&b'-')) {
-        options.extend_from_slice(a.as_bytes());
+    let mut switches: SmallVec<[u8; 8]> = SmallVec::new();
+    for a in args
+        .iter()
+        .skip(1)
+        .take_while(|a| a.get(0) == Some(&b'-') && a.get(1) != Some(&b'0'))
+    {
+        switches.extend(a.as_bytes().iter().skip(1).cloned());
     }
 
     let mut args: Vec<_> = args
@@ -78,7 +82,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
     args.sort_by(|a, b| vercmp(a.as_bytes(), b.as_bytes()));
 
-    let show_all = options.contains(&b'a');
+    let show_all = switches.contains(&b'a');
     let multiple_args = args.len() > 1;
 
     let mut dirs = Vec::new();
@@ -107,7 +111,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
     }
 
     if let Ok(width) = terminal_width {
-        if options.contains(&b'l') {
+        if switches.contains(&b'l') {
             write_details(CStr::from_bytes(b".\0"), &files, &mut out)?;
         } else {
             write_grid(&files, &mut out, width)?;
@@ -145,7 +149,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         }
 
         if let Ok(width) = terminal_width {
-            if options.contains(&b'l') {
+            if switches.contains(&b'l') {
                 write_details(*name, &entries, &mut out)?;
             } else {
                 write_grid(&entries, &mut out, width)?;
