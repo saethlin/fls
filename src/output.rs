@@ -1,6 +1,6 @@
-use crate::directory::DirEntry;
+use crate::directory::{DirEntry, Directory};
 use crate::syscalls;
-use crate::{CStr, Error, Style};
+use crate::{Error, Style};
 use alloc::vec;
 use alloc::vec::Vec;
 use smallvec::{smallvec, SmallVec};
@@ -15,29 +15,17 @@ struct ShortStats {
 }
 
 pub fn write_details<T: DirEntry>(
-    root: CStr,
+    root: &Directory,
     entries: &[T],
     out: &mut BufferedStdout,
 ) -> Result<(), Error> {
-    let mut path = Vec::new();
-
     let mut all_stats: Vec<ShortStats> = Vec::with_capacity(entries.len());
 
     let mut longest_name_len = 0;
-    let mut names = Vec::new();
+    let mut usernames = Vec::new();
 
     for e in entries {
-        let stats = if e.name().get(0) != Some(&b'/') {
-            path.clear();
-            path.extend_from_slice(root.as_bytes());
-            path.pop();
-            path.push(b'/');
-            path.extend_from_slice(e.name().as_bytes());
-            path.push(0);
-            syscalls::lstat(CStr::from_bytes(path.as_slice()))?
-        } else {
-            syscalls::lstat(e.name())?
-        };
+        let stats = syscalls::lstatat(root.raw_fd(), e.name())?;
 
         all_stats.push(ShortStats {
             mode: stats.st_mode,
@@ -46,7 +34,7 @@ pub fn write_details<T: DirEntry>(
             mtime: stats.st_mtime,
         });
 
-        if !names.iter().any(|(uid, _)| *uid == stats.st_uid) {
+        if !usernames.iter().any(|(uid, _)| *uid == stats.st_uid) {
             unsafe {
                 let pw = libc::getpwuid(stats.st_uid);
                 if !pw.is_null() {
@@ -58,13 +46,13 @@ pub fn write_details<T: DirEntry>(
                         offset += 1;
                     }
                     longest_name_len = longest_name_len.max(name.len());
-                    names.push((stats.st_uid, name));
+                    usernames.push((stats.st_uid, name));
                 } else {
                     let mut buf = itoa::Buffer::new();
                     let mut name: SmallVec<[u8; 24]> = SmallVec::new();
                     name.extend_from_slice(buf.format(stats.st_uid).as_bytes());
                     longest_name_len = longest_name_len.max(name.len());
-                    names.push((stats.st_uid, name));
+                    usernames.push((stats.st_uid, name));
                 }
             }
         }
@@ -226,12 +214,12 @@ pub fn write_details<T: DirEntry>(
             for _ in 0..(4 - size.len()) {
                 out.push(b' ')?;
             }
-            out.write(size.as_bytes())?;
+            out.write(size)?;
         }
         out.push(b' ')?;
 
         out.style(Style::YellowBold)?;
-        let name = names
+        let name = usernames
             .iter()
             .find(|&(uid, _)| *uid == stats.uid)
             .map(|(_, name)| name.clone())
@@ -273,7 +261,7 @@ pub fn write_details<T: DirEntry>(
         if day.len() < 2 {
             out.push(b' ')?;
         }
-        out.write(day.as_bytes())?;
+        out.write(day)?;
         out.push(b' ')?;
 
         if localtime.tm_year == current_year {
@@ -281,17 +269,17 @@ pub fn write_details<T: DirEntry>(
             if hour.len() < 2 {
                 out.push(b' ')?;
             }
-            out.write(hour.as_bytes())?;
+            out.write(hour)?;
             out.push(b':')?;
 
             let minute = buf.format(localtime.tm_min);
             if minute.len() < 2 {
                 out.push(b'0')?;
             }
-            out.write(minute.as_bytes())?;
+            out.write(minute)?;
         } else {
             out.push(b' ')?;
-            out.write(buf.format(localtime.tm_year + 1900).as_bytes())?;
+            out.write(buf.format(localtime.tm_year + 1900))?;
         }
 
         out.push(b' ')?;
@@ -380,11 +368,11 @@ pub fn write_single_column<T: DirEntry>(
 }
 
 pub trait Writable {
-    fn as_bytes(&self) -> &[u8];
+    fn bytes_repr(&self) -> &[u8];
 }
 
 impl Writable for &[u8] {
-    fn as_bytes(&self) -> &[u8] {
+    fn bytes_repr(&self) -> &[u8] {
         *self
     }
 }
@@ -393,7 +381,7 @@ macro_rules! array_impl {
     ($($N:expr)+) => {
         $(
             impl Writable for &[u8; $N] {
-                fn as_bytes(&self) -> &[u8] {
+                fn bytes_repr(&self) -> &[u8] {
                     *self
                 }
             }
@@ -406,6 +394,12 @@ array_impl! {
     10 11 12 13 14 15 16 17 18 19
     20 21 22 23 24 25 26 27 28 29
     30 31 32 33
+}
+
+impl Writable for &str {
+    fn bytes_repr(&self) -> &[u8] {
+        self.as_bytes()
+    }
 }
 
 pub struct BufferedStdout {
@@ -422,7 +416,7 @@ impl BufferedStdout {
     }
 
     pub fn write<T: Writable>(&mut self, item: T) -> Result<(), Error> {
-        for b in item.as_bytes() {
+        for b in item.bytes_repr() {
             if self.buf.try_push(*b).is_err() {
                 write_to_stdout(&self.buf)?;
                 self.buf.clear();

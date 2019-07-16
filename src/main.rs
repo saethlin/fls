@@ -67,7 +67,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         .skip(1)
         .take_while(|a| a.get(0) == Some(&b'-') && a.get(1) != Some(&b'0'))
     {
-        switches.extend(a.as_bytes().iter().skip(1).cloned());
+        switches.extend_from_slice(&a.as_bytes()[1..]);
     }
 
     let mut args: Vec<_> = args
@@ -80,7 +80,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         args.push(CStr::from_bytes(b".\0"));
     }
 
-    args.sort_by(|a, b| vercmp(*a, *b));
+    args.sort_by(|a, b| a.vercmp(*b));
 
     let show_all = switches.contains(&b'a');
     let multiple_args = args.len() > 1;
@@ -112,7 +112,11 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
     if let Ok(width) = terminal_width {
         if switches.contains(&b'l') {
-            write_details(CStr::from_bytes(b".\0"), &files, &mut out)?;
+            write_details(
+                &Directory::open(CStr::from_bytes(b".\0"))?,
+                &files,
+                &mut out,
+            )?;
         } else {
             write_grid(&files, &mut out, width)?;
         }
@@ -131,7 +135,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
         if show_all {
             for e in dir.iter() {
-                if e.name().as_bytes() != b".." && e.name().as_bytes() != b"." {
+                if e.name() != b".." && e.name() != b"." {
                     entries.push(e)
                 }
             }
@@ -141,7 +145,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
             }
         }
 
-        entries.sort_by(|a, b| vercmp(a.name(), b.name()));
+        entries.sort_by(|a, b| a.name().vercmp(b.name()));
 
         if multiple_args {
             out.write(*name)?;
@@ -150,7 +154,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
         if let Ok(width) = terminal_width {
             if switches.contains(&b'l') {
-                write_details(*name, &entries, &mut out)?;
+                write_details(dir, &entries, &mut out)?;
             } else {
                 write_grid(&entries, &mut out, width)?;
             }
@@ -164,61 +168,4 @@ fn run(args: &[CStr]) -> Result<(), Error> {
     }
 
     Ok(())
-}
-
-use core::cmp::Ordering;
-fn vercmp(s1_cstr: CStr, s2_cstr: CStr) -> Ordering {
-    let s1 = s1_cstr.as_bytes();
-    let s2 = s2_cstr.as_bytes();
-    let mut s1_pos: usize = 0;
-    let mut s2_pos: usize = 0;
-
-    while s1_pos < s1.len() || s2_pos < s2.len() {
-        let mut first_diff = Ordering::Equal;
-        while (s1_pos < s1.len() && !s1.digit_at(s1_pos))
-            || (s2_pos < s2.len() && !s2.digit_at(s2_pos))
-        {
-            let s1_c = s1.get(s1_pos).map(u8::to_ascii_lowercase);
-            let s2_c = s2.get(s2_pos).map(u8::to_ascii_lowercase);
-            if s1_c != s2_c {
-                return s1_c.cmp(&s2_c);
-            }
-            s1_pos += 1;
-            s2_pos += 1;
-        }
-        while s1.get(s1_pos) == Some(&b'0') {
-            s1_pos += 1;
-        }
-        while s2.get(s2_pos) == Some(&b'0') {
-            s2_pos += 1;
-        }
-
-        while s1.digit_at(s1_pos) && s2.digit_at(s2_pos) {
-            if first_diff == Ordering::Equal {
-                first_diff = s1.get(s1_pos).cmp(&s2.get(s2_pos));
-            }
-            s1_pos += 1;
-            s2_pos += 1;
-        }
-        if s1.digit_at(s1_pos) {
-            return Ordering::Greater;
-        }
-        if s2.digit_at(s2_pos) {
-            return Ordering::Less;
-        }
-        if first_diff != Ordering::Equal {
-            return first_diff;
-        }
-    }
-    Ordering::Equal
-}
-
-trait SliceExt {
-    fn digit_at(&self, index: usize) -> bool;
-}
-
-impl SliceExt for &[u8] {
-    fn digit_at(&self, index: usize) -> bool {
-        self.get(index).map(u8::is_ascii_digit).unwrap_or(false)
-    }
 }

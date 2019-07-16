@@ -26,10 +26,16 @@ pub fn open_dir(path: CStr) -> Result<c_int, Error> {
     ret.to_result(ret as c_int)
 }
 
-pub fn lstat(path: CStr) -> Result<libc::stat64, Error> {
+pub fn lstatat(fd: c_int, name: CStr) -> Result<libc::stat64, Error> {
     unsafe {
         let mut stats = core::mem::zeroed();
-        let ret = syscall!(LSTAT, path.as_ptr(), &mut stats as *mut libc::stat64) as isize;
+        let ret = syscall!(
+            NEWFSTATAT,
+            fd,
+            name.as_ptr(),
+            &mut stats as *mut libc::stat64,
+            libc::AT_SYMLINK_NOFOLLOW
+        ) as isize;
         ret.to_result(stats)
     }
 }

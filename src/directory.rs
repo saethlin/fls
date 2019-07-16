@@ -7,7 +7,12 @@ pub struct Directory {
     fd: c_int,
     dirents: SmallVec<[u8; 4096]>,
     bytes_used: isize,
-    path: alloc::vec::Vec<u8>,
+}
+
+impl Directory {
+    pub fn raw_fd(&self) -> c_int {
+        self.fd
+    }
 }
 
 impl Drop for Directory {
@@ -38,7 +43,6 @@ impl<'a> Directory {
             fd: fd as i32,
             dirents,
             bytes_used: bytes_used as isize,
-            path: path.as_bytes().to_vec(),
         })
     }
 
@@ -144,40 +148,29 @@ impl<'a> DirEntry for RawDirEntry<'a> {
                         Err(e)
                     }
                 }),
-            libc::DT_UNKNOWN => {
-                let mut path = self.directory.path.clone();
-                path.pop();
-                if path.last() != Some(&b'/') {
-                    path.push(b'/');
-                }
-                path.extend_from_slice(self.name().as_bytes());
-                if path.last() != Some(&0) {
-                    path.push(0);
-                }
-                match syscalls::lstat(CStr::from_bytes(path.as_slice())) {
-                    Err(e) => Err(e),
-                    Ok(stats) => {
-                        let mode = stats.st_mode;
-                        let entry_type = mode & libc::S_IFMT;
-                        match entry_type {
-                            libc::S_IFLNK => {
-                                syscalls::faccessat(self.directory.fd, self.name(), libc::F_OK)
-                                    .map(|_| Style::CyanBold)
-                                    .or_else(|e| {
-                                        if e.0 == libc::ENOENT as isize {
-                                            Ok(Style::RedBold)
-                                        } else {
-                                            Err(e)
-                                        }
-                                    })
-                            }
-                            libc::S_IFDIR => Ok(Style::BlueBold),
-                            libc::S_IFREG => Ok(Style::White),
-                            _ => Ok(Style::White),
+            libc::DT_UNKNOWN => match syscalls::lstatat(self.directory.fd, self.name()) {
+                Err(e) => Err(e),
+                Ok(stats) => {
+                    let mode = stats.st_mode;
+                    let entry_type = mode & libc::S_IFMT;
+                    match entry_type {
+                        libc::S_IFLNK => {
+                            syscalls::faccessat(self.directory.fd, self.name(), libc::F_OK)
+                                .map(|_| Style::CyanBold)
+                                .or_else(|e| {
+                                    if e.0 == libc::ENOENT as isize {
+                                        Ok(Style::RedBold)
+                                    } else {
+                                        Err(e)
+                                    }
+                                })
                         }
+                        libc::S_IFDIR => Ok(Style::BlueBold),
+                        libc::S_IFREG => Ok(Style::White),
+                        _ => Ok(Style::White),
                     }
                 }
-            }
+            },
 
             _ => Ok(Style::White),
         }
@@ -189,7 +182,6 @@ pub struct File<'a> {
     pub path: CStr<'a>,
 }
 
-use crate::output::Writable;
 impl<'a> DirEntry for File<'a> {
     fn name(&self) -> CStr {
         self.path
@@ -215,7 +207,7 @@ impl<'a> DirEntry for File<'a> {
 fn style_for(name: &[u8]) -> Style {
     let extension = match name.rsplit(|b| *b == b'.').next() {
         None => return Style::White,
-        Some(ext) => &ext[..ext.len() - 1],
+        Some(ext) => ext,
     };
     let compressed: &[&[u8]] = &[b"tar", b"gz", b"tgz", b"xz"];
     let document: &[&[u8]] = &[b"pdf", b"eps"];
