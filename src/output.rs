@@ -14,6 +14,21 @@ struct ShortStats {
     mtime: i64,
 }
 
+impl ShortStats {
+    fn style(&self) -> Option<Style> {
+        let entry_type = self.mode & libc::S_IFMT;
+        if entry_type == libc::S_IFDIR {
+            Some(Style::BlueBold)
+        } else if entry_type == libc::S_IFLNK {
+            Some(Style::Cyan)
+        } else if self.mode & S_IXUSR > 0 {
+            Some(Style::GreenBold)
+        } else {
+            None
+        }
+    }
+}
+
 pub fn write_details<T: DirEntry>(
     root: &Directory,
     entries: &[T],
@@ -58,12 +73,13 @@ pub fn write_details<T: DirEntry>(
         }
     }
 
-    let current_year = unsafe {
+    let localtime = unsafe {
         let mut localtime = core::mem::zeroed();
         let time = libc::time(core::ptr::null_mut());
         libc::localtime_r(&time, &mut localtime);
-        localtime.tm_year
+        localtime
     };
+    let current_year = localtime.tm_year;
 
     for (e, stats) in entries.iter().zip(all_stats.iter()) {
         let mode = stats.mode;
@@ -233,21 +249,8 @@ pub fn write_details<T: DirEntry>(
         }
         out.push(b' ')?;
 
-        let mut localtime = libc::tm {
-            tm_sec: 0,
-            tm_min: 0,
-            tm_hour: 0,
-            tm_mday: 0,
-            tm_mon: 0,
-            tm_year: 0,
-            tm_wday: 0,
-            tm_yday: 0,
-            tm_isdst: 0,
-            tm_gmtoff: 0,
-            tm_zone: core::ptr::null_mut(),
-        };
-
         unsafe {
+            let mut localtime = core::mem::zeroed();
             libc::localtime_r(&stats.mtime, &mut localtime);
         };
 
@@ -284,7 +287,11 @@ pub fn write_details<T: DirEntry>(
 
         out.push(b' ')?;
 
-        out.style(e.style())?;
+        out.style(
+            stats
+                .style()
+                .unwrap_or_else(|| crate::directory::style_for(e.name().as_bytes())),
+        )?;
         out.write(e.name())?;
         out.style(Style::Reset)?;
         out.push(b'\n')?;

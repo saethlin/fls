@@ -204,7 +204,7 @@ impl<'a> DirEntry for File<'a> {
     }
 }
 
-fn style_for(name: &[u8]) -> Style {
+pub fn style_for(name: &[u8]) -> Style {
     let extension = match name.rsplit(|b| *b == b'.').next() {
         None => return Style::White,
         Some(ext) => ext,
