@@ -35,17 +35,9 @@ impl<'a> CStr<'a> {
     }
 
     pub fn len_utf8(&self) -> usize {
-        if self.bytes.iter().all(|c| c.is_ascii()) {
-            if self.bytes.last() == Some(&0) {
-                self.bytes.len() - 1
-            } else {
-                self.bytes.len()
-            }
-        } else {
-            core::str::from_utf8(self.bytes)
-                .map(|s| s.graphemes(false).count())
-                .unwrap_or_else(|_| self.bytes.len())
-        }
+        core::str::from_utf8(&self.bytes[..self.bytes.len() - 1])
+            .map(|s| s.graphemes(false).count())
+            .unwrap_or_else(|_| self.bytes.len() - 1)
     }
 
     pub fn vercmp(&self, s2_cstr: CStr) -> Ordering {
