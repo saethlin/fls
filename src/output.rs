@@ -73,13 +73,12 @@ pub fn write_details<T: DirEntry>(
         }
     }
 
-    let localtime = unsafe {
+    let current_year = unsafe {
         let mut localtime = core::mem::zeroed();
         let time = libc::time(core::ptr::null_mut());
         libc::localtime_r(&time, &mut localtime);
-        localtime
+        localtime.tm_year
     };
-    let current_year = localtime.tm_year;
 
     for (e, stats) in entries.iter().zip(all_stats.iter()) {
         let mode = stats.mode;
@@ -249,9 +248,10 @@ pub fn write_details<T: DirEntry>(
         }
         out.push(b' ')?;
 
-        unsafe {
+        let localtime = unsafe {
             let mut localtime = core::mem::zeroed();
             libc::localtime_r(&stats.mtime, &mut localtime);
+            localtime
         };
 
         out.style(Style::Blue)?;
