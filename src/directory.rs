@@ -166,7 +166,7 @@ impl<'a> DirEntry for RawDirEntry<'a> {
                                 })
                         }
                         libc::S_IFDIR => Ok(Style::BlueBold),
-                        libc::S_IFREG => Ok(Style::White),
+                        libc::S_IFREG => Ok(style_for(self.name().as_bytes())),
                         _ => Ok(Style::White),
                     }
                 }

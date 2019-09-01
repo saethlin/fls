@@ -1,0 +1,17 @@
+name: CI/CD
+
+on: [push]
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v1
+            - name: Setup
+                run: rustup default nightly
+            - name: Build
+                run: cargo build --release
+            - name: Release
+                - run: python3 release.py
+                    env:
+                        PERSONAL_TOKEN: ${{secrets.PERSONAL_TOKEN}}
