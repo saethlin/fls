@@ -188,19 +188,7 @@ impl<'a> DirEntry for File<'a> {
     }
 
     fn style(&self) -> Style {
-        match syscalls::open_dir(self.path) {
-            Ok(fd) => {
-                let _ = syscalls::close(fd);
-                Style::BlueBold
-            }
-            Err(Error(code)) => {
-                if code == libc::ENOTDIR as isize {
-                    style_for(self.name().as_bytes())
-                } else {
-                    Style::White
-                }
-            }
-        }
+        style_for(self.name().as_bytes())
     }
 }
 
@@ -211,7 +199,7 @@ pub fn style_for(name: &[u8]) -> Style {
     };
     let compressed: &[&[u8]] = &[b"tar", b"gz", b"tgz", b"xz"];
     let document: &[&[u8]] = &[b"pdf", b"eps"];
-    let media: &[&[u8]] = &[b"png", b"mp4"];
+    let media: &[&[u8]] = &[b"png", b"mp4", b"jpg", b"jpeg"];
     if compressed.contains(&extension) {
         Style::Red
     } else if document.contains(&extension) || media.contains(&extension) {
