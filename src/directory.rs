@@ -98,6 +98,7 @@ pub trait DirEntry {
     fn style(&self) -> Style;
 }
 
+#[derive(Clone)]
 pub struct RawDirEntry<'a> {
     directory: &'a Directory,
     offset: isize,
@@ -178,6 +179,7 @@ impl<'a> DirEntry for RawDirEntry<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct File<'a> {
     pub path: CStr<'a>,
 }

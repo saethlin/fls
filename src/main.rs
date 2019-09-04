@@ -133,7 +133,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         if switches.contains(&b'l') {
             let mut files_and_stats = Vec::with_capacity(files.len());
             let dir = Directory::open(CStr::from_bytes(b".\0"))?;
-            for e in files.drain(..) {
+            for e in files.iter().cloned() {
                 let stats = syscalls::lstatat(dir.raw_fd(), e.name())?;
 
                 files_and_stats.push((
@@ -184,7 +184,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         }
 
         let mut entries_and_stats = Vec::new();
-        if !sort_time {
+        if !sort_time && !switches.contains(&b'l') {
             entries.sort_unstable_by(|a, b| {
                 let ordering = a.name().vercmp(b.name());
                 if sort_reversed {
@@ -195,7 +195,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
             });
         } else {
             entries_and_stats.reserve(entries.len());
-            for e in entries.drain() {
+            for e in entries.iter().cloned() {
                 let stats = syscalls::lstatat(dir.raw_fd(), e.name())?;
 
                 entries_and_stats.push((
