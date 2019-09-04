@@ -1,4 +1,4 @@
-use crate::directory::{DirEntry, Directory};
+use crate::directory::DirEntry;
 use crate::syscalls;
 use crate::{Error, Style};
 use alloc::vec;
@@ -7,11 +7,11 @@ use smallvec::{smallvec, SmallVec};
 
 use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR};
 
-struct ShortStats {
-    mode: u32,
-    size: i64,
-    uid: u32,
-    mtime: i64,
+pub struct ShortStats {
+    pub mode: u32,
+    pub size: i64,
+    pub uid: u32,
+    pub mtime: i64,
 }
 
 impl ShortStats {
@@ -30,28 +30,15 @@ impl ShortStats {
 }
 
 pub fn write_details<T: DirEntry>(
-    root: &Directory,
-    entries: &[T],
+    entries: &[(T, ShortStats)],
     out: &mut BufferedStdout,
 ) -> Result<(), Error> {
-    let mut all_stats: Vec<ShortStats> = Vec::with_capacity(entries.len());
-
     let mut longest_name_len = 0;
     let mut usernames = Vec::new();
-
-    for e in entries {
-        let stats = syscalls::lstatat(root.raw_fd(), e.name())?;
-
-        all_stats.push(ShortStats {
-            mode: stats.st_mode,
-            size: stats.st_size,
-            uid: stats.st_uid,
-            mtime: stats.st_mtime,
-        });
-
-        if !usernames.iter().any(|(uid, _)| *uid == stats.st_uid) {
+    for (_, stats) in entries {
+        if !usernames.iter().any(|(uid, _)| *uid == stats.uid) {
             unsafe {
-                let pw = libc::getpwuid(stats.st_uid);
+                let pw = libc::getpwuid(stats.uid);
                 if !pw.is_null() {
                     let name_ptr = (*pw).pw_name;
                     let mut offset = 0;
@@ -61,13 +48,13 @@ pub fn write_details<T: DirEntry>(
                         offset += 1;
                     }
                     longest_name_len = longest_name_len.max(name.len());
-                    usernames.push((stats.st_uid, name));
+                    usernames.push((stats.uid, name));
                 } else {
                     let mut buf = itoa::Buffer::new();
                     let mut name: SmallVec<[u8; 24]> = SmallVec::new();
-                    name.extend_from_slice(buf.format(stats.st_uid).as_bytes());
+                    name.extend_from_slice(buf.format(stats.uid).as_bytes());
                     longest_name_len = longest_name_len.max(name.len());
-                    usernames.push((stats.st_uid, name));
+                    usernames.push((stats.uid, name));
                 }
             }
         }
@@ -80,7 +67,7 @@ pub fn write_details<T: DirEntry>(
         localtime.tm_year
     };
 
-    for (e, stats) in entries.iter().zip(all_stats.iter()) {
+    for (e, stats) in entries {
         let mode = stats.mode;
 
         let entry_type = mode & libc::S_IFMT;

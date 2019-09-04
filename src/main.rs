@@ -99,6 +99,9 @@ fn run(args: &[CStr]) -> Result<(), Error> {
     args.sort_by(|a, b| a.vercmp(*b));
 
     let show_all = switches.contains(&b'a');
+    let sort_reversed = switches.contains(&b'r');
+    let sort_time = switches.contains(&b't');
+
     let multiple_args = args.len() > 1;
 
     let mut dirs = Vec::new();
@@ -128,11 +131,30 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
     if let Ok(width) = terminal_width {
         if switches.contains(&b'l') {
-            write_details(
-                &Directory::open(CStr::from_bytes(b".\0"))?,
-                &files,
-                &mut out,
-            )?;
+            let mut files_and_stats = Vec::with_capacity(files.len());
+            let dir = Directory::open(CStr::from_bytes(b".\0"))?;
+            for e in files.drain(..) {
+                let stats = syscalls::lstatat(dir.raw_fd(), e.name())?;
+
+                files_and_stats.push((
+                    e,
+                    output::ShortStats {
+                        mode: stats.st_mode,
+                        size: stats.st_size,
+                        uid: stats.st_uid,
+                        mtime: stats.st_mtime,
+                    },
+                ));
+            }
+            files_and_stats.sort_unstable_by(|a, b| {
+                let ordering = a.1.mtime.cmp(&b.1.mtime);
+                if sort_reversed {
+                    ordering.reverse()
+                } else {
+                    ordering
+                }
+            });
+            write_details(&files_and_stats, &mut out)?;
         } else {
             write_grid(&files, &mut out, width)?;
         }
@@ -161,10 +183,39 @@ fn run(args: &[CStr]) -> Result<(), Error> {
             }
         }
 
-        if switches.contains(&b'r') {
-            entries.sort_by(|a, b| b.name().vercmp(a.name()));
+        let mut entries_and_stats = Vec::new();
+        if !sort_time {
+            entries.sort_unstable_by(|a, b| {
+                let ordering = a.name().vercmp(b.name());
+                if sort_reversed {
+                    ordering.reverse()
+                } else {
+                    ordering
+                }
+            });
         } else {
-            entries.sort_by(|a, b| a.name().vercmp(b.name()));
+            entries_and_stats.reserve(entries.len());
+            for e in entries.drain() {
+                let stats = syscalls::lstatat(dir.raw_fd(), e.name())?;
+
+                entries_and_stats.push((
+                    e,
+                    output::ShortStats {
+                        mode: stats.st_mode,
+                        size: stats.st_size,
+                        uid: stats.st_uid,
+                        mtime: stats.st_mtime,
+                    },
+                ));
+            }
+            entries_and_stats.sort_unstable_by(|a, b| {
+                let ordering = a.1.mtime.cmp(&b.1.mtime);
+                if sort_reversed {
+                    ordering.reverse()
+                } else {
+                    ordering
+                }
+            });
         }
 
         if multiple_args {
@@ -174,7 +225,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
         if let Ok(width) = terminal_width {
             if switches.contains(&b'l') {
-                write_details(dir, &entries, &mut out)?;
+                write_details(&entries_and_stats, &mut out)?;
             } else {
                 write_grid(&entries, &mut out, width)?;
             }
