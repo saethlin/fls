@@ -95,6 +95,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         args.push(CStr::from_bytes(b".\0"));
     }
 
+    // TODO: Do we even want to do this?
     args.sort_by(|a, b| a.vercmp(*b));
 
     let show_all = switches.contains(&b'a');
@@ -160,7 +161,11 @@ fn run(args: &[CStr]) -> Result<(), Error> {
             }
         }
 
-        entries.sort_by(|a, b| a.name().vercmp(b.name()));
+        if switches.contains(&b'r') {
+            entries.sort_by(|a, b| b.name().vercmp(a.name()));
+        } else {
+            entries.sort_by(|a, b| a.name().vercmp(b.name()));
+        }
 
         if multiple_args {
             out.write(*name)?;
