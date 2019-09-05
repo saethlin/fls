@@ -210,3 +210,16 @@ pub fn style_for(name: &[u8]) -> Style {
         Style::White
     }
 }
+
+impl<T> DirEntry for (T, crate::Status)
+where
+    T: DirEntry,
+{
+    fn name(&self) -> CStr {
+        self.0.name()
+    }
+
+    fn style(&self) -> Style {
+        self.0.style()
+    }
+}

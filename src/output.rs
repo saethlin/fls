@@ -1,36 +1,14 @@
 use crate::directory::DirEntry;
 use crate::syscalls;
-use crate::{Error, Style};
+use crate::{Error, Status, Style};
 use alloc::vec;
 use alloc::vec::Vec;
 use smallvec::{smallvec, SmallVec};
 
 use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR};
 
-pub struct ShortStats {
-    pub mode: u32,
-    pub size: i64,
-    pub uid: u32,
-    pub mtime: i64,
-}
-
-impl ShortStats {
-    fn style(&self) -> Option<Style> {
-        let entry_type = self.mode & libc::S_IFMT;
-        if entry_type == libc::S_IFDIR {
-            Some(Style::BlueBold)
-        } else if entry_type == libc::S_IFLNK {
-            Some(Style::Cyan)
-        } else if self.mode & S_IXUSR > 0 {
-            Some(Style::GreenBold)
-        } else {
-            None
-        }
-    }
-}
-
 pub fn write_details<T: DirEntry>(
-    entries: &[(T, ShortStats)],
+    entries: &[(T, Status)],
     out: &mut BufferedStdout,
 ) -> Result<(), Error> {
     let mut longest_name_len = 0;
@@ -314,7 +292,7 @@ pub fn write_grid<T: DirEntry>(
     for tmp_rows in (1..entries.len()).rev() {
         let mut tmp_widths: SmallVec<[usize; 16]> = SmallVec::new();
         for column in lengths.chunks(tmp_rows) {
-            let width = column.iter().max().map(|m| *m).unwrap_or(1) + 2;
+            let width = column.iter().max().copied().unwrap_or(1) + 2;
             tmp_widths.push(width);
         }
         // Try to exit early if we're in a huge directory
@@ -322,7 +300,9 @@ pub fn write_grid<T: DirEntry>(
             break;
         }
 
-        tmp_widths.last_mut().map(|w| *w -= 2);
+        if let Some(w) = tmp_widths.last_mut() {
+            *w -= 2;
+        }
         if tmp_widths.iter().sum::<usize>() <= terminal_width {
             rows = tmp_rows;
             widths = tmp_widths;
