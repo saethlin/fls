@@ -9,12 +9,12 @@ use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOT
 
 pub fn write_details<T: DirEntry>(
     entries: &[(T, Status)],
+    uid_usernames: &mut Vec<((u32, SmallVec<[u8; 24]>))>,
     out: &mut BufferedStdout,
 ) -> Result<(), Error> {
     let mut longest_name_len = 0;
-    let mut usernames = Vec::new();
     for (_, stats) in entries {
-        if !usernames.iter().any(|(uid, _)| *uid == stats.uid) {
+        if !uid_usernames.iter().any(|(uid, _)| *uid == stats.uid) {
             unsafe {
                 let pw = libc::getpwuid(stats.uid);
                 if !pw.is_null() {
@@ -26,13 +26,13 @@ pub fn write_details<T: DirEntry>(
                         offset += 1;
                     }
                     longest_name_len = longest_name_len.max(name.len());
-                    usernames.push((stats.uid, name));
+                    uid_usernames.push((stats.uid, name));
                 } else {
                     let mut buf = itoa::Buffer::new();
                     let mut name: SmallVec<[u8; 24]> = SmallVec::new();
                     name.extend_from_slice(buf.format(stats.uid).as_bytes());
                     longest_name_len = longest_name_len.max(name.len());
-                    usernames.push((stats.uid, name));
+                    uid_usernames.push((stats.uid, name));
                 }
             }
         }
@@ -199,7 +199,7 @@ pub fn write_details<T: DirEntry>(
         out.push(b' ')?;
 
         out.style(Style::YellowBold)?;
-        let name = usernames
+        let name = uid_usernames
             .iter()
             .find(|&(uid, _)| *uid == stats.uid)
             .map(|(_, name)| name.clone())

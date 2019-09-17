@@ -80,6 +80,7 @@ enum DisplayMode {
 
 fn run(args: &[CStr]) -> Result<(), Error> {
     let mut out = BufferedStdout::new();
+    let mut uid_usernames = Vec::new();
 
     let mut display_mode = if let Ok(d) = syscalls::winsize() {
         DisplayMode::Grid(d.ws_col as usize)
@@ -186,7 +187,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
         match display_mode {
             DisplayMode::Grid(width) => write_grid(&files_and_stats, &mut out, width)?,
-            DisplayMode::Long => write_details(&files_and_stats, &mut out)?,
+            DisplayMode::Long => write_details(&files_and_stats, &mut uid_usernames, &mut out)?,
             DisplayMode::Column => write_single_column(&files_and_stats, &mut out)?,
         }
     }
@@ -255,7 +256,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
             match display_mode {
                 DisplayMode::Grid(width) => write_grid(&entries_and_stats, &mut out, width)?,
-                DisplayMode::Long => write_details(&entries_and_stats, &mut out)?,
+                DisplayMode::Long => write_details(&entries_and_stats, &mut uid_usernames, &mut out)?,
                 DisplayMode::Column => write_single_column(&entries_and_stats, &mut out)?,
             }
         }
