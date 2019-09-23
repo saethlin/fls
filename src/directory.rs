@@ -1,173 +1,55 @@
-use crate::syscalls;
-use crate::{CStr, Error, Style};
-use libc::c_int;
-use smallvec::SmallVec;
-
-pub struct Directory {
-    fd: c_int,
-    dirents: SmallVec<[u8; 4096]>,
-    bytes_used: isize,
-}
-
-impl Directory {
-    pub fn raw_fd(&self) -> c_int {
-        self.fd
-    }
-}
-
-impl Drop for Directory {
-    fn drop(&mut self) {
-        let _ = syscalls::close(self.fd);
-    }
-}
-
-impl<'a> Directory {
-    pub fn open(path: CStr) -> Result<Self, Error> {
-        let fd = syscalls::open_dir(path)?;
-
-        let mut dirents: SmallVec<[u8; 4096]> = smallvec::smallvec![0; 4096];
-        let mut bytes_read = syscalls::getdents64(fd, &mut dirents[..])?;
-        let mut bytes_used = bytes_read;
-
-        while bytes_read > 0 {
-            if dirents.len() - bytes_used < core::mem::size_of::<libc::dirent64>() {
-                dirents.reserve(4096);
-                dirents.extend(core::iter::repeat(0).take(4096));
-            }
-
-            bytes_read = syscalls::getdents64(fd, &mut dirents[bytes_used..])?;
-            bytes_used += bytes_read;
-        }
-
-        Ok(Self {
-            fd: fd as i32,
-            dirents,
-            bytes_used: bytes_used as isize,
-        })
-    }
-
-    pub fn iter(&'a self) -> IterDir<'a> {
-        IterDir {
-            directory: self,
-            offset: 0,
-        }
-    }
-}
-
-pub struct IterDir<'a> {
-    directory: &'a Directory,
-    offset: isize,
-}
-
-impl<'a> Iterator for IterDir<'a> {
-    type Item = RawDirEntry<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        unsafe {
-            let dirent_ptr =
-                self.directory.dirents.as_ptr().offset(self.offset) as *const libc::dirent64;
-
-            let entry = if self.offset < self.directory.bytes_used {
-                Some(RawDirEntry {
-                    directory: self.directory,
-                    offset: self.offset,
-                    name_len: libc::strlen((*dirent_ptr).d_name.as_ptr()),
-                })
-            } else {
-                None
-            };
-
-            self.offset += (*dirent_ptr).d_reclen as isize;
-
-            entry
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (
-            self.directory.bytes_used as usize / core::mem::size_of::<libc::dirent64>(),
-            Some(
-                self.directory.bytes_used as usize / (core::mem::size_of::<libc::dirent64>() - 256),
-            ),
-        )
-    }
-}
+use crate::Style;
+use veneer::directory::DType;
+use veneer::{syscalls, CStr};
 
 pub trait DirEntry {
     fn name(&self) -> CStr;
-    fn style(&self) -> Style;
+    fn style(&self, dir: &veneer::Directory) -> Style;
 }
 
-#[derive(Clone)]
-pub struct RawDirEntry<'a> {
-    directory: &'a Directory,
-    offset: isize,
-    name_len: usize,
-}
-
-impl<'a> RawDirEntry<'a> {
-    fn name_ptr(&self) -> *const libc::c_char {
-        unsafe {
-            let dirent_ptr =
-                self.directory.dirents.as_ptr().offset(self.offset) as *const libc::dirent64;
-            (*dirent_ptr).d_name.as_ptr()
-        }
-    }
-
-    fn d_type(&self) -> u8 {
-        unsafe {
-            (*(self.directory.dirents.as_ptr().offset(self.offset) as *const libc::dirent64)).d_type
-        }
-    }
-}
-
-impl<'a> DirEntry for RawDirEntry<'a> {
+impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
     fn name(&self) -> CStr {
-        let slice =
-            unsafe { core::slice::from_raw_parts(self.name_ptr() as *const u8, self.name_len + 1) };
-        CStr::from_bytes(slice)
+        self.name()
     }
 
-    fn style(&self) -> Style {
+    fn style(&self, dir: &veneer::Directory) -> Style {
         match self.d_type() {
-            libc::DT_DIR => Ok(Style::BlueBold),
-            libc::DT_LNK => syscalls::faccessat(self.directory.fd, self.name(), libc::F_OK)
+            DType::DIR => Ok(Style::BlueBold),
+            DType::LNK => syscalls::faccessat(dir.raw_fd(), self.name(), libc::F_OK)
                 .map(|_| Style::CyanBold)
                 .or_else(|e| {
-                    if e.0 == libc::ENOENT as isize {
+                    if e == libc::ENOENT {
                         Ok(Style::RedBold)
                     } else {
                         Err(e)
                     }
                 }),
-            libc::DT_REG => syscalls::faccessat(self.directory.fd, self.name(), libc::X_OK)
+            DType::REG => syscalls::faccessat(dir.raw_fd(), self.name(), libc::X_OK)
                 .map(|_| Style::GreenBold)
                 .or_else(|e| {
-                    if e.0 == libc::EACCES as isize {
-                        Ok(style_for(self.name().as_bytes()))
+                    if e == libc::EACCES {
+                        Ok(extension_style(self.name().as_bytes()))
                     } else {
                         Err(e)
                     }
                 }),
-            libc::DT_UNKNOWN => match syscalls::lstatat(self.directory.fd, self.name()) {
+            DType::UNKNOWN => match syscalls::lstatat(dir.raw_fd(), self.name()) {
                 Err(e) => Err(e),
                 Ok(stats) => {
                     let mode = stats.st_mode;
                     let entry_type = mode & libc::S_IFMT;
                     match entry_type {
-                        libc::S_IFLNK => {
-                            syscalls::faccessat(self.directory.fd, self.name(), libc::F_OK)
-                                .map(|_| Style::CyanBold)
-                                .or_else(|e| {
-                                    if e.0 == libc::ENOENT as isize {
-                                        Ok(Style::RedBold)
-                                    } else {
-                                        Err(e)
-                                    }
-                                })
-                        }
+                        libc::S_IFLNK => syscalls::faccessat(dir.raw_fd(), self.name(), libc::F_OK)
+                            .map(|_| Style::CyanBold)
+                            .or_else(|e| {
+                                if e == libc::ENOENT {
+                                    Ok(Style::RedBold)
+                                } else {
+                                    Err(e)
+                                }
+                            }),
                         libc::S_IFDIR => Ok(Style::BlueBold),
-                        libc::S_IFREG => Ok(style_for(self.name().as_bytes())),
+                        libc::S_IFREG => Ok(extension_style(self.name().as_bytes())),
                         _ => Ok(Style::White),
                     }
                 }
@@ -189,12 +71,15 @@ impl<'a> DirEntry for File<'a> {
         self.path
     }
 
-    fn style(&self) -> Style {
-        style_for(self.name().as_bytes())
+    fn style(&self, dir: &veneer::Directory) -> Style {
+        veneer::syscalls::lstatat(dir.raw_fd(), self.path)
+            .ok()
+            .and_then(|status| crate::Status::from(status).style())
+            .unwrap_or_else(|| extension_style(self.name().as_bytes()))
     }
 }
 
-pub fn style_for(name: &[u8]) -> Style {
+pub fn extension_style(name: &[u8]) -> Style {
     let extension = match name.rsplit(|b| *b == b'.').next() {
         None => return Style::White,
         Some(ext) => ext,
@@ -211,6 +96,7 @@ pub fn style_for(name: &[u8]) -> Style {
     }
 }
 
+// TODO: We can use the status to get the style information we want here
 impl<T> DirEntry for (T, crate::Status)
 where
     T: DirEntry,
@@ -219,7 +105,7 @@ where
         self.0.name()
     }
 
-    fn style(&self) -> Style {
-        self.0.style()
+    fn style(&self, fd: &veneer::Directory) -> Style {
+        self.0.style(fd)
     }
 }

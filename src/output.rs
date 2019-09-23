@@ -1,11 +1,12 @@
 use crate::directory::DirEntry;
-use crate::syscalls;
 use crate::{Error, Status, Style};
 use alloc::vec;
 use alloc::vec::Vec;
 use smallvec::{smallvec, SmallVec};
 
 use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR};
+use unicode_segmentation::UnicodeSegmentation;
+use veneer::syscalls;
 
 pub fn write_details<T: DirEntry>(
     entries: &[(T, Status)],
@@ -255,7 +256,7 @@ pub fn write_details<T: DirEntry>(
         out.style(
             stats
                 .style()
-                .unwrap_or_else(|| crate::directory::style_for(e.name().as_bytes())),
+                .unwrap_or_else(|| crate::directory::extension_style(e.name().as_bytes())),
         )?;
         out.write(e.name())?;
         out.style(Style::Reset)?;
@@ -266,6 +267,7 @@ pub fn write_details<T: DirEntry>(
 
 pub fn write_grid<T: DirEntry>(
     entries: &[T],
+    dir: &veneer::Directory,
     out: &mut BufferedStdout,
     terminal_width: usize,
 ) -> Result<(), Error> {
@@ -275,9 +277,9 @@ pub fn write_grid<T: DirEntry>(
 
     let mut rows = entries.len();
     let mut lengths: Vec<usize> = Vec::with_capacity(entries.len());
-    let mut min_len: usize = entries[0].name().len_utf8();
+    let mut min_len: usize = len_utf8(entries[0].name().as_bytes());
     for e in entries {
-        let len = e.name().len_utf8();
+        let len = len_utf8(e.name().as_bytes());
         lengths.push(len);
         min_len = min_len.min(len);
     }
@@ -316,7 +318,7 @@ pub fn write_grid<T: DirEntry>(
                 _ => continue,
             };
 
-            out.style(e.style())?;
+            out.style(e.style(dir))?;
             out.write(e.name())?;
 
             for _ in 0..(width - name_len) {
@@ -339,6 +341,12 @@ pub fn write_single_column<T: DirEntry>(
         out.push(b'\n')?;
     }
     Ok(())
+}
+
+fn len_utf8(bytes: &[u8]) -> usize {
+    core::str::from_utf8(bytes)
+        .map(|s| s.graphemes(false).count())
+        .unwrap_or_else(|_| bytes.len())
 }
 
 pub trait Writable {
@@ -371,6 +379,12 @@ array_impl! {
 }
 
 impl Writable for &str {
+    fn bytes_repr(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+impl<'a> Writable for veneer::CStr<'a> {
     fn bytes_repr(&self) -> &[u8] {
         self.as_bytes()
     }
@@ -441,5 +455,62 @@ fn month_abbr(month: u32) -> &'static [u8] {
         month_names[month as usize]
     } else {
         b"???"
+    }
+}
+
+use core::cmp::Ordering;
+pub fn vercmp(s1_cstr: veneer::CStr, s2_cstr: veneer::CStr) -> Ordering {
+    let s1 = s1_cstr.as_bytes();
+    let s2 = s2_cstr.as_bytes();
+    let mut s1_pos: usize = 0;
+    let mut s2_pos: usize = 0;
+
+    while s1_pos < s1.len() || s2_pos < s2.len() {
+        let mut first_diff = Ordering::Equal;
+        while (s1_pos < s1.len() && !s1.digit_at(s1_pos))
+            || (s2_pos < s2.len() && !s2.digit_at(s2_pos))
+        {
+            let s1_c = s1.get(s1_pos).map(u8::to_ascii_lowercase);
+            let s2_c = s2.get(s2_pos).map(u8::to_ascii_lowercase);
+            if s1_c != s2_c {
+                return s1_c.cmp(&s2_c);
+            }
+            s1_pos += 1;
+            s2_pos += 1;
+        }
+        while s1.get(s1_pos) == Some(&b'0') {
+            s1_pos += 1;
+        }
+        while s2.get(s2_pos) == Some(&b'0') {
+            s2_pos += 1;
+        }
+
+        while s1.digit_at(s1_pos) && s2.digit_at(s2_pos) {
+            if first_diff == Ordering::Equal {
+                first_diff = s1.get(s1_pos).cmp(&s2.get(s2_pos));
+            }
+            s1_pos += 1;
+            s2_pos += 1;
+        }
+        if s1.digit_at(s1_pos) {
+            return Ordering::Greater;
+        }
+        if s2.digit_at(s2_pos) {
+            return Ordering::Less;
+        }
+        if first_diff != Ordering::Equal {
+            return first_diff;
+        }
+    }
+    Ordering::Equal
+}
+
+trait SliceExt {
+    fn digit_at(&self, index: usize) -> bool;
+}
+
+impl SliceExt for &[u8] {
+    fn digit_at(&self, index: usize) -> bool {
+        self.get(index).map(u8::is_ascii_digit).unwrap_or(false)
     }
 }

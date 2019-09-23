@@ -6,8 +6,8 @@ edition = "2018"
 license = "GPL-3.0-or-later"
 
 [dependencies]
+veneer = {git = "https://github.com/saethlin/veneer"}
 libc = "0.2"
-syscall = "0.2"
 smallvec = {version = "0.6", default-features = false}
 arrayvec = {version = "0.4", default-features = false}
 itoa = {version = "0.4", default-features = false}
