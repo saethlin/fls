@@ -67,7 +67,7 @@ pub extern "C" fn main(argc: i32, argv: *const *const libc::c_char) -> i32 {
 
     match run(&args) {
         Ok(()) => 0,
-        Err(e) => -1, //e.0 as i32, TODO
+        Err(e) => e.0 as i32,
     }
 }
 
@@ -129,71 +129,67 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         match veneer::Directory::open(arg) {
             Ok(d) => dirs.push((arg, d)),
             Err(Error(20)) => files.push(crate::directory::File { path: arg }),
-            Err(Error(2)) => {
-                out.write(arg)?;
-                out.write(b": No such file or directory\n")?;
-            }
-            Err(Error(13)) => {
-                out.write(arg)?;
-                out.write(b": Permission denied\n")?;
-            }
             Err(e) => {
                 out.write(arg)?;
                 out.write(b": OS error ")?;
                 let mut buf = itoa::Buffer::new();
                 out.write(buf.format(e.0).as_bytes())?;
+                out.push(b' ')?;
+                out.write(e.msg().as_bytes())?;
                 out.push(b'\n')?;
             }
         }
     }
 
-    if !need_details {
-        files.sort_unstable_by(|a, b| {
-            let ordering = vercmp(a.name(), b.name());
-            if sort_reversed {
-                ordering.reverse()
-            } else {
-                ordering
+    if !files.is_empty() {
+        if !need_details {
+            files.sort_unstable_by(|a, b| {
+                let ordering = vercmp(a.name(), b.name());
+                if sort_reversed {
+                    ordering.reverse()
+                } else {
+                    ordering
+                }
+            });
+
+            match display_mode {
+                DisplayMode::Grid(width) => write_grid(
+                    &files,
+                    &veneer::Directory::open(CStr::from_bytes(b".\0"))?,
+                    &mut out,
+                    width,
+                )?,
+                DisplayMode::Column => write_single_column(&files, &mut out)?,
+                DisplayMode::Long => {}
             }
-        });
-
-        match display_mode {
-            DisplayMode::Grid(width) => write_grid(
-                &files,
-                &veneer::Directory::open(CStr::from_bytes(b".\0"))?,
-                &mut out,
-                width,
-            )?,
-            DisplayMode::Column => write_single_column(&files, &mut out)?,
-            DisplayMode::Long => {}
-        }
-    } else {
-        let mut files_and_stats = Vec::with_capacity(files.len());
-        let dir = veneer::Directory::open(CStr::from_bytes(b".\0"))?;
-        for e in files.iter().cloned() {
-            let stats = Status::from(syscalls::lstatat(dir.raw_fd(), e.name())?);
-            files_and_stats.push((e, stats));
-        }
-
-        files_and_stats.sort_unstable_by(|a, b| {
-            let ordering = if sort_time {
-                a.1.mtime.cmp(&b.1.mtime)
-            } else if sort_size {
-                a.1.size.cmp(&b.1.size)
-            } else {
-                vercmp(a.0.name(), b.0.name())
-            };
-            if sort_reversed {
-                ordering.reverse()
-            } else {
-                ordering
+        } else {
+            let mut files_and_stats = Vec::with_capacity(files.len());
+            let dir = veneer::Directory::open(CStr::from_bytes(b".\0"))?;
+            for e in files.iter().cloned() {
+                let stats = Status::from(syscalls::lstatat(dir.raw_fd(), e.name())?);
+                files_and_stats.push((e, stats));
             }
-        });
 
-        match display_mode {
-            DisplayMode::Grid(width) => write_grid(&files_and_stats, &dir, &mut out, width)?,
-            DisplayMode::Long => write_details(&files_and_stats, &mut uid_usernames, &mut out)?,
-            DisplayMode::Column => write_single_column(&files_and_stats, &mut out)?,
+            files_and_stats.sort_unstable_by(|a, b| {
+                let ordering = if sort_time {
+                    a.1.mtime.cmp(&b.1.mtime)
+                } else if sort_size {
+                    a.1.size.cmp(&b.1.size)
+                } else {
+                    vercmp(a.0.name(), b.0.name())
+                };
+                if sort_reversed {
+                    ordering.reverse()
+                } else {
+                    ordering
+                }
+            });
+
+            match display_mode {
+                DisplayMode::Grid(width) => write_grid(&files_and_stats, &dir, &mut out, width)?,
+                DisplayMode::Long => write_details(&files_and_stats, &mut uid_usernames, &mut out)?,
+                DisplayMode::Column => write_single_column(&files_and_stats, &mut out)?,
+            }
         }
     }
 
