@@ -1,5 +1,5 @@
 use crate::directory::DirEntry;
-use crate::{Error, Status, Style};
+use crate::{Status, Style};
 use alloc::vec;
 use alloc::vec::Vec;
 use smallvec::{smallvec, SmallVec};
@@ -12,7 +12,7 @@ pub fn write_details<T: DirEntry>(
     entries: &[(T, Status)],
     uid_usernames: &mut Vec<((u32, SmallVec<[u8; 24]>))>,
     out: &mut BufferedStdout,
-) -> Result<(), Error> {
+) {
     let mut longest_name_len = 0;
     for (_, stats) in entries {
         if !uid_usernames.iter().any(|(uid, _)| *uid == stats.uid) {
@@ -51,90 +51,68 @@ pub fn write_details<T: DirEntry>(
 
         let entry_type = mode & libc::S_IFMT;
         if entry_type == libc::S_IFDIR {
-            out.style(Style::BlueBold)?;
-            out.push(b'd')?;
+            out.style(Style::BlueBold).push(b'd');
         } else if entry_type == libc::S_IFLNK {
-            out.style(Style::Cyan)?;
-            out.push(b'l')?;
+            out.style(Style::Cyan).push(b'l');
         } else {
-            out.style(Style::White)?;
-            out.push(b'.')?;
+            out.style(Style::White).push(b'.');
         }
 
         if mode & S_IRUSR > 0 {
-            out.style(Style::YellowBold)?;
-            out.push(b'r')?;
+            out.style(Style::YellowBold).push(b'r');
         } else {
-            out.style(Style::Gray)?;
-            out.push(b'-')?;
+            out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IWUSR > 0 {
-            out.style(Style::RedBold)?;
-            out.push(b'w')?;
+            out.style(Style::RedBold).push(b'w');
         } else {
-            out.style(Style::Gray)?;
-            out.push(b'-')?;
+            out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IXUSR > 0 {
-            out.style(Style::GreenBold)?;
-            out.push(b'x')?;
+            out.style(Style::GreenBold).push(b'x');
         } else {
-            out.style(Style::Gray)?;
-            out.push(b'-')?;
+            out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IRGRP > 0 {
-            out.style(Style::Yellow)?;
-            out.push(b'r')?;
+            out.style(Style::Yellow).push(b'r');
         } else {
-            out.style(Style::Gray)?;
-            out.push(b'-')?;
+            out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IWGRP > 0 {
-            out.style(Style::Red)?;
-            out.push(b'w')?;
+            out.style(Style::Red).push(b'w');
         } else {
-            out.style(Style::Gray)?;
-            out.push(b'-')?;
+            out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IXGRP > 0 {
-            out.style(Style::Green)?;
-            out.push(b'x')?;
+            out.style(Style::Green).push(b'x');
         } else {
-            out.style(Style::Gray)?;
-            out.push(b'-')?;
+            out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IROTH > 0 {
-            out.style(Style::Yellow)?;
-            out.push(b'r')?;
+            out.style(Style::Yellow).push(b'r');
         } else {
-            out.style(Style::Gray)?;
-            out.push(b'-')?;
+            out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IWOTH > 0 {
-            out.style(Style::Red)?;
-            out.push(b'w')?;
+            out.style(Style::Red).push(b'w');
         } else {
-            out.style(Style::Gray)?;
-            out.push(b'-')?;
+            out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IXOTH > 0 {
-            out.style(Style::Green)?;
-            out.push(b'x')?;
+            out.style(Style::Green).push(b'x');
         } else {
-            out.style(Style::Gray)?;
-            out.push(b'-')?;
+            out.style(Style::Gray).push(b'-');
         }
 
-        out.push(b' ')?;
-        out.style(Style::GreenBold)?;
+        out.push(b' ').style(Style::GreenBold);
 
         use libm::F32Ext;
 
@@ -143,7 +121,7 @@ pub fn write_details<T: DirEntry>(
         let kilobyte = 1024;
 
         if entry_type == libc::S_IFDIR {
-            out.write(b"    ")?;
+            out.write(b"    ");
         } else if stats.size > gigabyte {
             let mut buf = itoa::Buffer::new();
             let converted = (stats.size as f32) / gigabyte as f32;
@@ -151,14 +129,14 @@ pub fn write_details<T: DirEntry>(
                 .format(((stats.size as f32) / gigabyte as f32 * 10.).round() as u32)
                 .as_bytes();
             if converted < 10. {
-                out.write(&[size[0], b'.', size[1]])?;
+                out.write(&[size[0], b'.', size[1]]);
             } else if converted < 100. {
-                out.push(b' ')?;
-                out.write(&size[..2])?;
+                out.push(b' ');
+                out.write(&size[..2]);
             } else {
-                out.write(&size[..3])?;
+                out.write(&size[..3]);
             }
-            out.push(b'G')?;
+            out.push(b'G');
         } else if stats.size > 1_000_000 {
             let mut buf = itoa::Buffer::new();
             let converted = (stats.size as f32) / megabyte as f32;
@@ -166,14 +144,14 @@ pub fn write_details<T: DirEntry>(
                 .format(((stats.size as f32) / megabyte as f32 * 10.).round() as u32)
                 .as_bytes();
             if converted < 10. {
-                out.write(&[size[0], b'.', size[1]])?;
+                out.write(&[size[0], b'.', size[1]]);
             } else if converted < 100. {
-                out.push(b' ')?;
-                out.write(&size[..2])?;
+                out.push(b' ');
+                out.write(&size[..2]);
             } else {
-                out.write(&size[..3])?;
+                out.write(&size[..3]);
             }
-            out.push(b'M')?;
+            out.push(b'M');
         } else if stats.size > 1_000 {
             let mut buf = itoa::Buffer::new();
             let converted = (stats.size as f32) / kilobyte as f32;
@@ -181,38 +159,38 @@ pub fn write_details<T: DirEntry>(
                 .format(((stats.size as f32) / kilobyte as f32 * 10.).round() as u32)
                 .as_bytes();
             if converted < 10. {
-                out.write(&[size[0], b'.', size[1]])?;
+                out.write(&[size[0], b'.', size[1]]);
             } else if converted < 100. {
-                out.push(b' ')?;
-                out.write(&size[..2])?;
+                out.push(b' ');
+                out.write(&size[..2]);
             } else {
-                out.write(&size[..3])?;
+                out.write(&size[..3]);
             }
-            out.push(b'K')?;
+            out.push(b'K');
         } else {
             let mut buf = itoa::Buffer::new();
             let size = buf.format(stats.size);
             for _ in 0..(4 - size.len()) {
-                out.push(b' ')?;
+                out.push(b' ');
             }
-            out.write(size)?;
+            out.write(size);
         }
-        out.push(b' ')?;
+        out.push(b' ');
 
-        out.style(Style::YellowBold)?;
+        out.style(Style::YellowBold);
         let name = uid_usernames
             .iter()
             .find(|&(uid, _)| *uid == stats.uid)
             .map(|(_, name)| name.clone())
             .unwrap_or_default();
-        out.write(name.as_ref())?;
+        out.write(name.as_ref());
         // pad out to the length of the longest name
         if name.len() < longest_name_len {
             for _ in 0..longest_name_len - name.len() as usize {
-                out.push(b' ')?;
+                out.push(b' ');
             }
         }
-        out.push(b' ')?;
+        out.push(b' ');
 
         let localtime = unsafe {
             let mut localtime = core::mem::zeroed();
@@ -220,49 +198,46 @@ pub fn write_details<T: DirEntry>(
             localtime
         };
 
-        out.style(Style::Blue)?;
-
-        out.write(month_abbr(localtime.tm_mon as u32))?;
-        out.push(b' ')?;
+        out.style(Style::Blue)
+            .write(month_abbr(localtime.tm_mon as u32))
+            .push(b' ');
 
         let mut buf = itoa::Buffer::new();
         let day = buf.format(localtime.tm_mday);
         if day.len() < 2 {
-            out.push(b' ')?;
+            out.push(b' ');
         }
-        out.write(day)?;
-        out.push(b' ')?;
+        out.write(day).push(b' ');
 
         if localtime.tm_year == current_year {
             let hour = buf.format(localtime.tm_hour);
             if hour.len() < 2 {
-                out.push(b' ')?;
+                out.push(b' ');
             }
-            out.write(hour)?;
-            out.push(b':')?;
+            out.write(hour);
+            out.push(b':');
 
             let minute = buf.format(localtime.tm_min);
             if minute.len() < 2 {
-                out.push(b'0')?;
+                out.push(b'0');
             }
-            out.write(minute)?;
+            out.write(minute);
         } else {
-            out.push(b' ')?;
-            out.write(buf.format(localtime.tm_year + 1900))?;
+            out.push(b' ');
+            out.write(buf.format(localtime.tm_year + 1900));
         }
 
-        out.push(b' ')?;
+        out.push(b' ');
 
         out.style(
             stats
                 .style()
                 .unwrap_or_else(|| crate::directory::extension_style(e.name().as_bytes())),
-        )?;
-        out.write(e.name())?;
-        out.style(Style::Reset)?;
-        out.push(b'\n')?;
+        );
+        out.write(e.name());
+        out.style(Style::Reset);
+        out.push(b'\n');
     }
-    Ok(())
 }
 
 pub fn write_grid<T: DirEntry>(
@@ -270,9 +245,9 @@ pub fn write_grid<T: DirEntry>(
     dir: &veneer::Directory,
     out: &mut BufferedStdout,
     terminal_width: usize,
-) -> Result<(), Error> {
+) {
     if entries.is_empty() {
-        return Ok(());
+        return;
     }
 
     let mut rows = entries.len();
@@ -318,29 +293,21 @@ pub fn write_grid<T: DirEntry>(
                 _ => continue,
             };
 
-            out.style(e.style(dir))?;
-            out.write(e.name())?;
+            out.style(e.style(dir)).write(e.name());
 
             for _ in 0..(width - name_len) {
-                out.push(b' ')?;
+                out.push(b' ');
             }
         }
-        out.style(Style::Reset)?;
-        out.push(b'\n')?;
+        out.style(Style::Reset);
+        out.push(b'\n');
     }
-
-    Ok(())
 }
 
-pub fn write_single_column<T: DirEntry>(
-    entries: &[T],
-    out: &mut BufferedStdout,
-) -> Result<(), Error> {
+pub fn write_single_column<T: DirEntry>(entries: &[T], out: &mut BufferedStdout) {
     for e in entries {
-        out.write(e.name())?;
-        out.push(b'\n')?;
+        out.write(e.name()).push(b'\n');
     }
-    Ok(())
 }
 
 fn len_utf8(bytes: &[u8]) -> usize {
@@ -403,47 +370,46 @@ impl BufferedStdout {
         }
     }
 
-    pub fn write<T: Writable>(&mut self, item: T) -> Result<(), Error> {
+    pub fn write<T: Writable>(&mut self, item: T) -> &mut Self {
         for b in item.bytes_repr() {
             if self.buf.try_push(*b).is_err() {
-                write_to_stdout(&self.buf)?;
+                write_to_stdout(&self.buf);
                 self.buf.clear();
                 self.buf.push(*b);
             }
         }
-        Ok(())
+        self
     }
 
-    pub fn push(&mut self, b: u8) -> Result<(), Error> {
+    pub fn push(&mut self, b: u8) -> &mut Self {
         if self.buf.try_push(b).is_err() {
-            write_to_stdout(&self.buf)?;
+            write_to_stdout(&self.buf);
             self.buf.clear();
             self.buf.push(b);
         }
-        Ok(())
+        self
     }
 
-    pub fn style(&mut self, style: Style) -> Result<(), Error> {
+    pub fn style(&mut self, style: Style) -> &mut Self {
         if self.style != style {
-            self.write(style.to_bytes())?;
+            self.write(style.to_bytes());
             self.style = style;
         }
-        Ok(())
+        self
     }
 }
 
 impl Drop for BufferedStdout {
     fn drop(&mut self) {
-        let _ = write_to_stdout(&self.buf);
+        write_to_stdout(&self.buf);
     }
 }
 
-fn write_to_stdout(bytes: &[u8]) -> Result<(), Error> {
+fn write_to_stdout(bytes: &[u8]) {
     let mut bytes_written = 0;
     while bytes_written < bytes.len() {
-        bytes_written += syscalls::write(libc::STDOUT_FILENO, &bytes[bytes_written..])?;
+        bytes_written += syscalls::write(libc::STDOUT_FILENO, &bytes[bytes_written..]).unwrap();
     }
-    Ok(())
 }
 
 fn month_abbr(month: u32) -> &'static [u8] {

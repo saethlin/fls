@@ -130,13 +130,13 @@ fn run(args: &[CStr]) -> Result<(), Error> {
             Ok(d) => dirs.push((arg, d)),
             Err(Error(20)) => files.push(crate::directory::File { path: arg }),
             Err(e) => {
-                out.write(arg)?;
-                out.write(b": OS error ")?;
                 let mut buf = itoa::Buffer::new();
-                out.write(buf.format(e.0).as_bytes())?;
-                out.push(b' ')?;
-                out.write(e.msg().as_bytes())?;
-                out.push(b'\n')?;
+                out.write(arg)
+                    .write(b": OS error ")
+                    .write(buf.format(e.0).as_bytes())
+                    .push(b' ')
+                    .write(e.msg().as_bytes())
+                    .push(b'\n');
             }
         }
     }
@@ -158,8 +158,8 @@ fn run(args: &[CStr]) -> Result<(), Error> {
                     &veneer::Directory::open(CStr::from_bytes(b".\0"))?,
                     &mut out,
                     width,
-                )?,
-                DisplayMode::Column => write_single_column(&files, &mut out)?,
+                ),
+                DisplayMode::Column => write_single_column(&files, &mut out),
                 DisplayMode::Long => {}
             }
         } else {
@@ -186,15 +186,15 @@ fn run(args: &[CStr]) -> Result<(), Error> {
             });
 
             match display_mode {
-                DisplayMode::Grid(width) => write_grid(&files_and_stats, &dir, &mut out, width)?,
-                DisplayMode::Long => write_details(&files_and_stats, &mut uid_usernames, &mut out)?,
-                DisplayMode::Column => write_single_column(&files_and_stats, &mut out)?,
+                DisplayMode::Grid(width) => write_grid(&files_and_stats, &dir, &mut out, width),
+                DisplayMode::Long => write_details(&files_and_stats, &mut uid_usernames, &mut out),
+                DisplayMode::Column => write_single_column(&files_and_stats, &mut out),
             }
         }
     }
 
     if !dirs.is_empty() && !files.is_empty() {
-        out.push(b'\n')?;
+        out.push(b'\n');
     }
 
     for (n, (name, dir)) in dirs.iter().enumerate() {
@@ -216,8 +216,7 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         };
 
         if multiple_args {
-            out.write(*name)?;
-            out.write(b":\n")?;
+            out.write(*name).write(b":\n");
         }
 
         if !need_details {
@@ -230,8 +229,8 @@ fn run(args: &[CStr]) -> Result<(), Error> {
                 }
             });
             match display_mode {
-                DisplayMode::Grid(width) => write_grid(&entries, &dir, &mut out, width)?,
-                DisplayMode::Column => write_single_column(&entries, &mut out)?,
+                DisplayMode::Grid(width) => write_grid(&entries, &dir, &mut out, width),
+                DisplayMode::Column => write_single_column(&entries, &mut out),
                 DisplayMode::Long => {}
             }
         } else {
@@ -257,16 +256,16 @@ fn run(args: &[CStr]) -> Result<(), Error> {
             });
 
             match display_mode {
-                DisplayMode::Grid(width) => write_grid(&entries_and_stats, &dir, &mut out, width)?,
+                DisplayMode::Grid(width) => write_grid(&entries_and_stats, &dir, &mut out, width),
                 DisplayMode::Long => {
-                    write_details(&entries_and_stats, &mut uid_usernames, &mut out)?
+                    write_details(&entries_and_stats, &mut uid_usernames, &mut out)
                 }
-                DisplayMode::Column => write_single_column(&entries_and_stats, &mut out)?,
+                DisplayMode::Column => write_single_column(&entries_and_stats, &mut out),
             }
         }
 
         if multiple_args && n != dirs.len() - 1 {
-            out.push(b'\n')?;
+            out.push(b'\n');
         }
     }
 
