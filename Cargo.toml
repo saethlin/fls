@@ -6,7 +6,6 @@ edition = "2018"
 license = "GPL-3.0-or-later"
 
 [dependencies]
-#veneer = {path = "../veneer"}
 veneer = {git = "https://github.com/saethlin/veneer"}
 libc = "0.2"
 smallvec = {version = "0.6", default-features = false}
