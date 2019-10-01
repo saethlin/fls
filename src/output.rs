@@ -1,4 +1,4 @@
-use crate::cli::Suffixes;
+use crate::cli::{App, Suffixes};
 use crate::directory::DirEntry;
 use crate::{Status, Style};
 use alloc::vec;
@@ -9,14 +9,10 @@ use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOT
 use unicode_segmentation::UnicodeSegmentation;
 use veneer::syscalls;
 
-pub fn write_details<T: DirEntry>(
-    entries: &[(T, Status)],
-    uid_usernames: &mut Vec<((u32, SmallVec<[u8; 24]>))>,
-    out: &mut BufferedStdout,
-) {
+pub fn write_details<T: DirEntry>(entries: &[(T, Status)], app: &mut App) {
     let mut longest_name_len = 0;
     for (_, stats) in entries {
-        if !uid_usernames.iter().any(|(uid, _)| *uid == stats.uid) {
+        if !app.uid_usernames.iter().any(|(uid, _)| *uid == stats.uid) {
             unsafe {
                 let pw = libc::getpwuid(stats.uid);
                 if !pw.is_null() {
@@ -28,13 +24,13 @@ pub fn write_details<T: DirEntry>(
                         offset += 1;
                     }
                     longest_name_len = longest_name_len.max(name.len());
-                    uid_usernames.push((stats.uid, name));
+                    app.uid_usernames.push((stats.uid, name));
                 } else {
                     let mut buf = itoa::Buffer::new();
                     let mut name: SmallVec<[u8; 24]> = SmallVec::new();
                     name.extend_from_slice(buf.format(stats.uid).as_bytes());
                     longest_name_len = longest_name_len.max(name.len());
-                    uid_usernames.push((stats.uid, name));
+                    app.uid_usernames.push((stats.uid, name));
                 }
             }
         }
@@ -52,68 +48,68 @@ pub fn write_details<T: DirEntry>(
 
         let entry_type = mode & libc::S_IFMT;
         if entry_type == libc::S_IFDIR {
-            out.style(Style::BlueBold).push(b'd');
+            app.out.style(Style::BlueBold).push(b'd');
         } else if entry_type == libc::S_IFLNK {
-            out.style(Style::Cyan).push(b'l');
+            app.out.style(Style::Cyan).push(b'l');
         } else {
-            out.style(Style::White).push(b'.');
+            app.out.style(Style::White).push(b'.');
         }
 
         if mode & S_IRUSR > 0 {
-            out.style(Style::YellowBold).push(b'r');
+            app.out.style(Style::YellowBold).push(b'r');
         } else {
-            out.style(Style::Gray).push(b'-');
+            app.out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IWUSR > 0 {
-            out.style(Style::RedBold).push(b'w');
+            app.out.style(Style::RedBold).push(b'w');
         } else {
-            out.style(Style::Gray).push(b'-');
+            app.out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IXUSR > 0 {
-            out.style(Style::GreenBold).push(b'x');
+            app.out.style(Style::GreenBold).push(b'x');
         } else {
-            out.style(Style::Gray).push(b'-');
+            app.out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IRGRP > 0 {
-            out.style(Style::Yellow).push(b'r');
+            app.out.style(Style::Yellow).push(b'r');
         } else {
-            out.style(Style::Gray).push(b'-');
+            app.out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IWGRP > 0 {
-            out.style(Style::Red).push(b'w');
+            app.out.style(Style::Red).push(b'w');
         } else {
-            out.style(Style::Gray).push(b'-');
+            app.out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IXGRP > 0 {
-            out.style(Style::Green).push(b'x');
+            app.out.style(Style::Green).push(b'x');
         } else {
-            out.style(Style::Gray).push(b'-');
+            app.out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IROTH > 0 {
-            out.style(Style::Yellow).push(b'r');
+            app.out.style(Style::Yellow).push(b'r');
         } else {
-            out.style(Style::Gray).push(b'-');
+            app.out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IWOTH > 0 {
-            out.style(Style::Red).push(b'w');
+            app.out.style(Style::Red).push(b'w');
         } else {
-            out.style(Style::Gray).push(b'-');
+            app.out.style(Style::Gray).push(b'-');
         }
 
         if mode & S_IXOTH > 0 {
-            out.style(Style::Green).push(b'x');
+            app.out.style(Style::Green).push(b'x');
         } else {
-            out.style(Style::Gray).push(b'-');
+            app.out.style(Style::Gray).push(b'-');
         }
 
-        out.push(b' ').style(Style::GreenBold);
+        app.out.push(b' ').style(Style::GreenBold);
 
         use libm::F32Ext;
 
@@ -122,7 +118,7 @@ pub fn write_details<T: DirEntry>(
         let kilobyte = 1024;
 
         if entry_type == libc::S_IFDIR {
-            out.write(b"    ");
+            app.out.write(b"    ");
         } else if stats.size > gigabyte {
             let mut buf = itoa::Buffer::new();
             let converted = (stats.size as f32) / gigabyte as f32;
@@ -130,14 +126,14 @@ pub fn write_details<T: DirEntry>(
                 .format(((stats.size as f32) / gigabyte as f32 * 10.).round() as u32)
                 .as_bytes();
             if converted < 10. {
-                out.write(&[size[0], b'.', size[1]]);
+                app.out.write(&[size[0], b'.', size[1]]);
             } else if converted < 100. {
-                out.push(b' ');
-                out.write(&size[..2]);
+                app.out.push(b' ');
+                app.out.write(&size[..2]);
             } else {
-                out.write(&size[..3]);
+                app.out.write(&size[..3]);
             }
-            out.push(b'G');
+            app.out.push(b'G');
         } else if stats.size > 1_000_000 {
             let mut buf = itoa::Buffer::new();
             let converted = (stats.size as f32) / megabyte as f32;
@@ -145,14 +141,14 @@ pub fn write_details<T: DirEntry>(
                 .format(((stats.size as f32) / megabyte as f32 * 10.).round() as u32)
                 .as_bytes();
             if converted < 10. {
-                out.write(&[size[0], b'.', size[1]]);
+                app.out.write(&[size[0], b'.', size[1]]);
             } else if converted < 100. {
-                out.push(b' ');
-                out.write(&size[..2]);
+                app.out.push(b' ');
+                app.out.write(&size[..2]);
             } else {
-                out.write(&size[..3]);
+                app.out.write(&size[..3]);
             }
-            out.push(b'M');
+            app.out.push(b'M');
         } else if stats.size > 1_000 {
             let mut buf = itoa::Buffer::new();
             let converted = (stats.size as f32) / kilobyte as f32;
@@ -160,38 +156,39 @@ pub fn write_details<T: DirEntry>(
                 .format(((stats.size as f32) / kilobyte as f32 * 10.).round() as u32)
                 .as_bytes();
             if converted < 10. {
-                out.write(&[size[0], b'.', size[1]]);
+                app.out.write(&[size[0], b'.', size[1]]);
             } else if converted < 100. {
-                out.push(b' ');
-                out.write(&size[..2]);
+                app.out.push(b' ');
+                app.out.write(&size[..2]);
             } else {
-                out.write(&size[..3]);
+                app.out.write(&size[..3]);
             }
-            out.push(b'K');
+            app.out.push(b'K');
         } else {
             let mut buf = itoa::Buffer::new();
             let size = buf.format(stats.size);
             for _ in 0..(4 - size.len()) {
-                out.push(b' ');
+                app.out.push(b' ');
             }
-            out.write(size);
+            app.out.write(size);
         }
-        out.push(b' ');
+        app.out.push(b' ');
 
-        out.style(Style::YellowBold);
-        let name = uid_usernames
+        app.out.style(Style::YellowBold);
+        let name = app
+            .uid_usernames
             .iter()
             .find(|&(uid, _)| *uid == stats.uid)
             .map(|(_, name)| name.clone())
             .unwrap_or_default();
-        out.write(name.as_ref());
-        // pad out to the length of the longest name
+        app.out.write(name.as_ref());
+        // pad app.out to the length of the longest name
         if name.len() < longest_name_len {
             for _ in 0..longest_name_len - name.len() as usize {
-                out.push(b' ');
+                app.out.push(b' ');
             }
         }
-        out.push(b' ');
+        app.out.push(b' ');
 
         let localtime = unsafe {
             let mut localtime = core::mem::zeroed();
@@ -199,53 +196,51 @@ pub fn write_details<T: DirEntry>(
             localtime
         };
 
-        out.style(Style::Blue)
+        app.out
+            .style(Style::Blue)
             .write(month_abbr(localtime.tm_mon as u32))
             .push(b' ');
 
         let mut buf = itoa::Buffer::new();
         let day = buf.format(localtime.tm_mday);
         if day.len() < 2 {
-            out.push(b' ');
+            app.out.push(b' ');
         }
-        out.write(day).push(b' ');
+        app.out.write(day).push(b' ');
 
         if localtime.tm_year == current_year {
             let hour = buf.format(localtime.tm_hour);
             if hour.len() < 2 {
-                out.push(b' ');
+                app.out.push(b' ');
             }
-            out.write(hour);
-            out.push(b':');
+            app.out.write(hour);
+            app.out.push(b':');
 
             let minute = buf.format(localtime.tm_min);
             if minute.len() < 2 {
-                out.push(b'0');
+                app.out.push(b'0');
             }
-            out.write(minute);
+            app.out.write(minute);
         } else {
-            out.push(b' ');
-            out.write(buf.format(localtime.tm_year + 1900));
+            app.out.push(b' ');
+            app.out.write(buf.format(localtime.tm_year + 1900));
         }
 
-        out.push(b' ');
+        app.out.push(b' ');
 
-        out.style(
+        app.out.style(
             stats
                 .style()
                 .unwrap_or_else(|| crate::directory::extension_style(e.name().as_bytes())),
         );
-        out.write(e.name());
-        out.style(Style::Reset);
-        out.push(b'\n');
+        app.out.write(e.name()).style(Style::Reset).push(b'\n');
     }
 }
 
 pub fn write_grid<T: DirEntry>(
     entries: &[T],
     dir: &veneer::Directory,
-    opt: &crate::cli::Options,
-    out: &mut BufferedStdout,
+    app: &mut App,
     terminal_width: usize,
 ) {
     if entries.is_empty() {
@@ -254,9 +249,10 @@ pub fn write_grid<T: DirEntry>(
 
     let mut rows = entries.len();
     let mut lengths: Vec<usize> = Vec::with_capacity(entries.len());
-    let mut min_len: usize = len_utf8(entries[0].name().as_bytes());
+    let mut min_len: usize =
+        len_utf8(entries[0].name().as_bytes()) + entries[0].style(dir).1.is_some() as usize;
     for e in entries {
-        let len = len_utf8(e.name().as_bytes()) + (opt.suffixes != Suffixes::None) as usize;
+        let len = len_utf8(e.name().as_bytes()) + e.style(dir).1.is_some() as usize;
         lengths.push(len);
         min_len = min_len.min(len);
     }
@@ -296,35 +292,30 @@ pub fn write_grid<T: DirEntry>(
             };
 
             let (style, suffix) = e.style(dir);
-            out.style(style).write(e.name());
-            match opt.suffixes {
+            app.out.style(style).write(e.name());
+            match app.suffixes {
                 Suffixes::None => {}
                 Suffixes::Directories => {
                     if suffix == Some(b'/') {
-                        out.style(Style::White);
-                        out.push(b'/');
+                        app.out.style(Style::White).push(b'/');
                     }
                 }
                 Suffixes::All => {
-                    suffix.map(|s| {
-                        out.style(Style::White);
-                        out.push(s)
-                    });
+                    suffix.map(|s| app.out.style(Style::White).push(s));
                 }
             }
 
             for _ in 0..(width - name_len) {
-                out.push(b' ');
+                app.out.push(b' ');
             }
         }
-        out.style(Style::Reset);
-        out.push(b'\n');
+        app.out.style(Style::Reset).push(b'\n');
     }
 }
 
-pub fn write_single_column<T: DirEntry>(entries: &[T], out: &mut BufferedStdout) {
+pub fn write_single_column<T: DirEntry>(entries: &[T], app: &mut App) {
     for e in entries {
-        out.write(e.name()).push(b'\n');
+        app.out.write(e.name()).push(b'\n');
     }
 }
 

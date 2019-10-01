@@ -15,11 +15,15 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
     fn style(&self, dir: &veneer::Directory) -> (Style, Option<u8>) {
         match self.d_type() {
             DType::DIR => Ok((Style::BlueBold, Some(b'/'))),
+            DType::FIFO => Ok((Style::YellowBold, Some(b'|'))),
+            DType::CHR => Ok((Style::YellowBold, None)),
+            DType::BLK => Ok((Style::YellowBold, None)),
+            DType::SOCK => Ok((Style::YellowBold, None)),
             DType::LNK => syscalls::faccessat(dir.raw_fd(), self.name(), libc::F_OK)
                 .map(|_| (Style::CyanBold, Some(b'@')))
                 .or_else(|e| {
                     if e == libc::ENOENT {
-                        Ok((Style::RedBold, Some(b'!')))
+                        Ok((Style::RedBold, Some(b'?')))
                     } else {
                         Err(e)
                     }
@@ -43,7 +47,7 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
                             .map(|_| (Style::CyanBold, Some(b'@')))
                             .or_else(|e| {
                                 if e == libc::ENOENT {
-                                    Ok((Style::RedBold, Some(b'!')))
+                                    Ok((Style::RedBold, Some(b'?')))
                                 } else {
                                     Err(e)
                                 }
@@ -54,8 +58,6 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
                     }
                 }
             },
-
-            _ => Ok((Style::White, None)), // TODO: Suffixes and colors for all the other file types
         }
         .unwrap_or((Style::White, None))
     }
@@ -79,23 +81,10 @@ impl<'a> DirEntry for File<'a> {
                 (
                     s.style()
                         .unwrap_or_else(|| extension_style(self.name().as_bytes())),
-                    suffix_for(&s),
+                    s.suffix(),
                 )
             })
             .unwrap_or((Style::White, None))
-    }
-}
-
-fn suffix_for(status: &crate::Status) -> Option<u8> {
-    let entry_type = status.mode & libc::S_IFMT;
-    if entry_type == libc::S_IFDIR {
-        Some(b'/')
-    } else if entry_type == libc::S_IFLNK {
-        Some(b'@')
-    } else if status.mode & libc::S_IXUSR > 0 {
-        Some(b'*')
-    } else {
-        None
     }
 }
 
