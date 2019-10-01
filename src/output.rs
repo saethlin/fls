@@ -1,3 +1,4 @@
+use crate::cli::Suffixes;
 use crate::directory::DirEntry;
 use crate::{Status, Style};
 use alloc::vec;
@@ -243,6 +244,7 @@ pub fn write_details<T: DirEntry>(
 pub fn write_grid<T: DirEntry>(
     entries: &[T],
     dir: &veneer::Directory,
+    opt: &crate::cli::Options,
     out: &mut BufferedStdout,
     terminal_width: usize,
 ) {
@@ -254,7 +256,7 @@ pub fn write_grid<T: DirEntry>(
     let mut lengths: Vec<usize> = Vec::with_capacity(entries.len());
     let mut min_len: usize = len_utf8(entries[0].name().as_bytes());
     for e in entries {
-        let len = len_utf8(e.name().as_bytes());
+        let len = len_utf8(e.name().as_bytes()) + (opt.suffixes != Suffixes::None) as usize;
         lengths.push(len);
         min_len = min_len.min(len);
     }
@@ -269,7 +271,7 @@ pub fn write_grid<T: DirEntry>(
     for tmp_rows in (1..entries.len()).rev() {
         let mut tmp_widths: SmallVec<[usize; 16]> = SmallVec::new();
         for column in lengths.chunks(tmp_rows) {
-            let width = column.iter().max().copied().unwrap_or(1) + 2;
+            let width = column.iter().max().copied().unwrap_or(1) + 2; // 2 for padding between columns
             tmp_widths.push(width);
         }
         // Try to exit early if we're in a huge directory
@@ -293,7 +295,23 @@ pub fn write_grid<T: DirEntry>(
                 _ => continue,
             };
 
-            out.style(e.style(dir)).write(e.name());
+            let (style, suffix) = e.style(dir);
+            out.style(style).write(e.name());
+            match opt.suffixes {
+                Suffixes::None => {}
+                Suffixes::Directories => {
+                    if suffix == Some(b'/') {
+                        out.style(Style::White);
+                        out.push(b'/');
+                    }
+                }
+                Suffixes::All => {
+                    suffix.map(|s| {
+                        out.style(Style::White);
+                        out.push(s)
+                    });
+                }
+            }
 
             for _ in 0..(width - name_len) {
                 out.push(b' ');

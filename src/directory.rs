@@ -4,7 +4,7 @@ use veneer::{syscalls, CStr};
 
 pub trait DirEntry {
     fn name(&self) -> CStr;
-    fn style(&self, dir: &veneer::Directory) -> Style;
+    fn style(&self, dir: &veneer::Directory) -> (Style, Option<u8>);
 }
 
 impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
@@ -12,23 +12,23 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
         self.name()
     }
 
-    fn style(&self, dir: &veneer::Directory) -> Style {
+    fn style(&self, dir: &veneer::Directory) -> (Style, Option<u8>) {
         match self.d_type() {
-            DType::DIR => Ok(Style::BlueBold),
+            DType::DIR => Ok((Style::BlueBold, Some(b'/'))),
             DType::LNK => syscalls::faccessat(dir.raw_fd(), self.name(), libc::F_OK)
-                .map(|_| Style::CyanBold)
+                .map(|_| (Style::CyanBold, Some(b'@')))
                 .or_else(|e| {
                     if e == libc::ENOENT {
-                        Ok(Style::RedBold)
+                        Ok((Style::RedBold, Some(b'!')))
                     } else {
                         Err(e)
                     }
                 }),
             DType::REG => syscalls::faccessat(dir.raw_fd(), self.name(), libc::X_OK)
-                .map(|_| Style::GreenBold)
+                .map(|_| (Style::GreenBold, Some(b'*')))
                 .or_else(|e| {
                     if e == libc::EACCES {
-                        Ok(extension_style(self.name().as_bytes()))
+                        Ok((extension_style(self.name().as_bytes()), None))
                     } else {
                         Err(e)
                     }
@@ -40,24 +40,24 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
                     let entry_type = mode & libc::S_IFMT;
                     match entry_type {
                         libc::S_IFLNK => syscalls::faccessat(dir.raw_fd(), self.name(), libc::F_OK)
-                            .map(|_| Style::CyanBold)
+                            .map(|_| (Style::CyanBold, Some(b'@')))
                             .or_else(|e| {
                                 if e == libc::ENOENT {
-                                    Ok(Style::RedBold)
+                                    Ok((Style::RedBold, Some(b'!')))
                                 } else {
                                     Err(e)
                                 }
                             }),
-                        libc::S_IFDIR => Ok(Style::BlueBold),
-                        libc::S_IFREG => Ok(extension_style(self.name().as_bytes())),
-                        _ => Ok(Style::White),
+                        libc::S_IFDIR => Ok((Style::BlueBold, Some(b'/'))),
+                        libc::S_IFREG => Ok((extension_style(self.name().as_bytes()), None)),
+                        _ => Ok((Style::White, None)),
                     }
                 }
             },
 
-            _ => Ok(Style::White),
+            _ => Ok((Style::White, None)), // TODO: Suffixes and colors for all the other file types
         }
-        .unwrap_or(Style::White)
+        .unwrap_or((Style::White, None))
     }
 }
 
@@ -71,11 +71,31 @@ impl<'a> DirEntry for File<'a> {
         self.path
     }
 
-    fn style(&self, dir: &veneer::Directory) -> Style {
+    fn style(&self, dir: &veneer::Directory) -> (Style, Option<u8>) {
         veneer::syscalls::lstatat(dir.raw_fd(), self.path)
             .ok()
-            .and_then(|status| crate::Status::from(status).style())
-            .unwrap_or_else(|| extension_style(self.name().as_bytes()))
+            .map(crate::Status::from)
+            .map(|s| {
+                (
+                    s.style()
+                        .unwrap_or_else(|| extension_style(self.name().as_bytes())),
+                    suffix_for(&s),
+                )
+            })
+            .unwrap_or((Style::White, None))
+    }
+}
+
+fn suffix_for(status: &crate::Status) -> Option<u8> {
+    let entry_type = status.mode & libc::S_IFMT;
+    if entry_type == libc::S_IFDIR {
+        Some(b'/')
+    } else if entry_type == libc::S_IFLNK {
+        Some(b'@')
+    } else if status.mode & libc::S_IXUSR > 0 {
+        Some(b'*')
+    } else {
+        None
     }
 }
 
@@ -105,7 +125,7 @@ where
         self.0.name()
     }
 
-    fn style(&self, fd: &veneer::Directory) -> Style {
+    fn style(&self, fd: &veneer::Directory) -> (Style, Option<u8>) {
         self.0.style(fd)
     }
 }

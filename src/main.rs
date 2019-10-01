@@ -112,6 +112,7 @@ fn run(args: &[CStr<'static>]) -> Result<(), Error> {
                 DisplayMode::Grid(width) => write_grid(
                     &files,
                     &veneer::Directory::open(CStr::from_bytes(b".\0"))?,
+                    &opt,
                     &mut out,
                     width,
                 ),
@@ -141,11 +142,12 @@ fn run(args: &[CStr<'static>]) -> Result<(), Error> {
             }
 
             match opt.display_mode {
-                DisplayMode::Grid(width) => write_grid(&files_and_stats, &dir, &mut out, width),
-                DisplayMode::Long | DisplayMode::Stream => {
-                    write_details(&files_and_stats, &mut uid_usernames, &mut out)
+                DisplayMode::Grid(width) => {
+                    write_grid(&files_and_stats, &dir, &opt, &mut out, width)
                 }
+                DisplayMode::Long => write_details(&files_and_stats, &mut uid_usernames, &mut out),
                 DisplayMode::SingleColumn => write_single_column(&files_and_stats, &mut out),
+                DisplayMode::Stream => {}
             }
         }
     }
@@ -193,7 +195,7 @@ fn run(args: &[CStr<'static>]) -> Result<(), Error> {
                 ordering
             });
             match opt.display_mode {
-                DisplayMode::Grid(width) => write_grid(&entries, &dir, &mut out, width),
+                DisplayMode::Grid(width) => write_grid(&entries, &dir, &opt, &mut out, width),
                 DisplayMode::SingleColumn => write_single_column(&entries, &mut out),
                 DisplayMode::Long | DisplayMode::Stream => {}
             }
@@ -220,7 +222,9 @@ fn run(args: &[CStr<'static>]) -> Result<(), Error> {
             }
 
             match opt.display_mode {
-                DisplayMode::Grid(width) => write_grid(&entries_and_stats, &dir, &mut out, width),
+                DisplayMode::Grid(width) => {
+                    write_grid(&entries_and_stats, &dir, &opt, &mut out, width)
+                }
                 DisplayMode::Long | DisplayMode::Stream => {
                     write_details(&entries_and_stats, &mut uid_usernames, &mut out)
                 }
