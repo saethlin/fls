@@ -9,7 +9,7 @@ license = "GPL-3.0-or-later"
 veneer = {git = "https://github.com/saethlin/veneer"}
 libc = "0.2"
 smallvec = {version = "0.6", default-features = false}
-arrayvec = {version = "0.4", default-features = false}
+arrayvec = {version = "0.5", default-features = false}
 itoa = {version = "0.4", default-features = false}
 libm = "0.1"
 unicode-segmentation = "1.3"

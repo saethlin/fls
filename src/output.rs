@@ -360,13 +360,23 @@ impl<'a> Writable for veneer::CStr<'a> {
 pub struct BufferedStdout {
     buf: arrayvec::ArrayVec<[u8; 4096]>,
     style: Style,
+    is_terminal: bool,
 }
 
 impl BufferedStdout {
-    pub fn new() -> Self {
+    pub fn terminal() -> Self {
         Self {
             buf: arrayvec::ArrayVec::new(),
             style: Style::Reset,
+            is_terminal: true,
+        }
+    }
+
+    pub fn file() -> Self {
+        Self {
+            buf: arrayvec::ArrayVec::new(),
+            style: Style::Reset,
+            is_terminal: false,
         }
     }
 
@@ -391,9 +401,11 @@ impl BufferedStdout {
     }
 
     pub fn style(&mut self, style: Style) -> &mut Self {
-        if self.style != style {
-            self.write(style.to_bytes());
-            self.style = style;
+        if self.is_terminal {
+            if self.style != style {
+                self.write(style.to_bytes());
+                self.style = style;
+            }
         }
         self
     }

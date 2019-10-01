@@ -20,33 +20,20 @@ fn alloc_error(_: core::alloc::Layout) -> ! {
     unsafe { libc::abort() }
 }
 
-struct Allocator;
-
-use core::alloc::{GlobalAlloc, Layout};
-unsafe impl GlobalAlloc for Allocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        libc::malloc(layout.size()) as *mut u8
-    }
-    unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
-        libc::free(ptr as *mut libc::c_void)
-    }
-    unsafe fn realloc(&self, ptr: *mut u8, _layout: Layout, new_size: usize) -> *mut u8 {
-        libc::realloc(ptr as *mut libc::c_void, new_size) as *mut u8
-    }
-}
-
 #[global_allocator]
-static ALLOC: Allocator = Allocator;
+static ALLOC: veneer::LibcAllocator = veneer::LibcAllocator;
 
 extern crate alloc;
 use alloc::vec::Vec;
 use smallvec::SmallVec;
 
+pub mod cli;
 mod directory;
 mod error;
 mod output;
 mod style;
 
+use cli::{DisplayMode, ShowAll, SortField};
 use directory::DirEntry;
 use output::*;
 use style::Style;
@@ -58,11 +45,8 @@ use veneer::Error;
 #[no_mangle]
 pub extern "C" fn main(argc: i32, argv: *const *const libc::c_char) -> i32 {
     let mut args = Vec::with_capacity(argc as usize);
-    unsafe {
-        for i in 0..argc {
-            let ptr = *argv.offset(i as isize);
-            args.push(CStr::from_ptr(ptr));
-        }
+    for i in 0..argc {
+        args.push(unsafe { CStr::from_ptr(*argv.offset(i as isize)) });
     }
 
     match run(&args) {
@@ -71,54 +55,27 @@ pub extern "C" fn main(argc: i32, argv: *const *const libc::c_char) -> i32 {
     }
 }
 
-#[derive(PartialEq, Eq)]
-enum DisplayMode {
-    Grid(usize),
-    Long,
-    Column,
-}
+fn run(args: &[CStr<'static>]) -> Result<(), Error> {
+    let (mut opt, args) = cli::parse_arguments(args)?;
 
-fn run(args: &[CStr]) -> Result<(), Error> {
-    let mut out = BufferedStdout::new();
     let mut uid_usernames = Vec::new();
 
-    let mut display_mode = if let Ok(d) = syscalls::winsize() {
-        DisplayMode::Grid(d.ws_col as usize)
+    let terminal_width = syscalls::winsize().ok().map(|d| d.ws_col as usize);
+
+    match (terminal_width, opt.display_mode) {
+        (Some(width), DisplayMode::Grid(_)) => opt.display_mode = DisplayMode::Grid(width),
+        (None, DisplayMode::Grid(_)) => opt.display_mode = DisplayMode::SingleColumn,
+        _ => {}
+    }
+    let mut out = if terminal_width.is_some() {
+        BufferedStdout::terminal()
     } else {
-        DisplayMode::Column
+        BufferedStdout::file()
     };
 
-    let mut switches: SmallVec<[u8; 8]> = SmallVec::new();
-    for a in args
-        .iter()
-        .skip(1)
-        .filter(|a| a.get(0) == Some(b'-'))
-        .take_while(|a| a.as_bytes() != b"--")
-    {
-        switches.extend_from_slice(&a.as_bytes()[1..]);
-    }
-
-    let mut args: Vec<_> = args
-        .iter()
-        .cloned()
-        .skip(1)
-        .skip_while(|a| a.get(0) == Some(b'-'))
-        .collect();
-    if args.is_empty() {
-        args.push(CStr::from_bytes(b".\0"));
-    }
-
-    let show_all = switches.contains(&b'a');
-    if switches.contains(&b'1') {
-        display_mode = DisplayMode::Column;
-    }
-    if switches.contains(&b'l') {
-        display_mode = DisplayMode::Long;
-    }
-    let sort_reversed = switches.contains(&b'r');
-    let sort_time = switches.contains(&b't');
-    let sort_size = switches.contains(&b'S');
-    let need_details = display_mode == DisplayMode::Long || sort_time || sort_size;
+    let need_details = opt.display_mode == DisplayMode::Long
+        || opt.sort_field == Some(SortField::Time)
+        || opt.sort_field == Some(SortField::Size);
 
     let multiple_args = args.len() > 1;
 
@@ -144,23 +101,22 @@ fn run(args: &[CStr]) -> Result<(), Error> {
     if !files.is_empty() {
         if !need_details {
             files.sort_unstable_by(|a, b| {
-                let ordering = vercmp(a.name(), b.name());
-                if sort_reversed {
-                    ordering.reverse()
-                } else {
-                    ordering
+                let mut ordering = vercmp(a.name(), b.name());
+                if opt.reverse_sorting {
+                    ordering = ordering.reverse();
                 }
+                ordering
             });
 
-            match display_mode {
+            match opt.display_mode {
                 DisplayMode::Grid(width) => write_grid(
                     &files,
                     &veneer::Directory::open(CStr::from_bytes(b".\0"))?,
                     &mut out,
                     width,
                 ),
-                DisplayMode::Column => write_single_column(&files, &mut out),
-                DisplayMode::Long => {}
+                DisplayMode::SingleColumn => write_single_column(&files, &mut out),
+                DisplayMode::Long | DisplayMode::Stream => {}
             }
         } else {
             let mut files_and_stats = Vec::with_capacity(files.len());
@@ -170,25 +126,26 @@ fn run(args: &[CStr]) -> Result<(), Error> {
                 files_and_stats.push((e, stats));
             }
 
-            files_and_stats.sort_unstable_by(|a, b| {
-                let ordering = if sort_time {
-                    a.1.mtime.cmp(&b.1.mtime)
-                } else if sort_size {
-                    a.1.size.cmp(&b.1.size)
-                } else {
-                    vercmp(a.0.name(), b.0.name())
-                };
-                if sort_reversed {
-                    ordering.reverse()
-                } else {
+            if let Some(field) = opt.sort_field {
+                files_and_stats.sort_unstable_by(|a, b| {
+                    let mut ordering = match field {
+                        SortField::Time => a.1.mtime.cmp(&b.1.mtime),
+                        SortField::Size => a.1.size.cmp(&b.1.size),
+                        SortField::Name => vercmp(a.0.name(), b.0.name()),
+                    };
+                    if opt.reverse_sorting {
+                        ordering = ordering.reverse();
+                    }
                     ordering
-                }
-            });
+                });
+            }
 
-            match display_mode {
+            match opt.display_mode {
                 DisplayMode::Grid(width) => write_grid(&files_and_stats, &dir, &mut out, width),
-                DisplayMode::Long => write_details(&files_and_stats, &mut uid_usernames, &mut out),
-                DisplayMode::Column => write_single_column(&files_and_stats, &mut out),
+                DisplayMode::Long | DisplayMode::Stream => {
+                    write_details(&files_and_stats, &mut uid_usernames, &mut out)
+                }
+                DisplayMode::SingleColumn => write_single_column(&files_and_stats, &mut out),
             }
         }
     }
@@ -203,17 +160,25 @@ fn run(args: &[CStr]) -> Result<(), Error> {
         let mut entries: SmallVec<[veneer::directory::DirEntry; 32]> = SmallVec::new();
         entries.reserve(hint.1.unwrap_or(hint.0));
 
-        if show_all {
-            for e in contents.iter() {
-                if e.name().as_bytes() != b".." && e.name().as_bytes() != b"." {
+        match opt.show_all {
+            ShowAll::No => {
+                for e in contents.iter().filter(|e| e.name().get(0) != Some(b'.')) {
                     entries.push(e)
                 }
             }
-        } else {
-            for e in contents.iter().filter(|e| e.name().get(0) != Some(b'.')) {
-                entries.push(e)
+            ShowAll::Almost => {
+                for e in contents.iter() {
+                    if e.name().as_bytes() != b".." && e.name().as_bytes() != b"." {
+                        entries.push(e)
+                    }
+                }
             }
-        };
+            ShowAll::Yes => {
+                for e in contents.iter() {
+                    entries.push(e);
+                }
+            }
+        }
 
         if multiple_args {
             out.write(*name).write(b":\n");
@@ -221,17 +186,16 @@ fn run(args: &[CStr]) -> Result<(), Error> {
 
         if !need_details {
             entries.sort_unstable_by(|a, b| {
-                let ordering = vercmp(a.name(), b.name());
-                if sort_reversed {
-                    ordering.reverse()
-                } else {
-                    ordering
+                let mut ordering = vercmp(a.name(), b.name());
+                if opt.reverse_sorting {
+                    ordering = ordering.reverse();
                 }
+                ordering
             });
-            match display_mode {
+            match opt.display_mode {
                 DisplayMode::Grid(width) => write_grid(&entries, &dir, &mut out, width),
-                DisplayMode::Column => write_single_column(&entries, &mut out),
-                DisplayMode::Long => {}
+                DisplayMode::SingleColumn => write_single_column(&entries, &mut out),
+                DisplayMode::Long | DisplayMode::Stream => {}
             }
         } else {
             let mut entries_and_stats = Vec::new();
@@ -240,27 +204,27 @@ fn run(args: &[CStr]) -> Result<(), Error> {
                 let status = Status::from(syscalls::lstatat(dir.raw_fd(), e.name())?);
                 entries_and_stats.push((e, status));
             }
-            entries_and_stats.sort_unstable_by(|a, b| {
-                let ordering = if sort_time {
-                    a.1.mtime.cmp(&b.1.mtime)
-                } else if sort_size {
-                    a.1.size.cmp(&b.1.size)
-                } else {
-                    vercmp(a.0.name(), b.0.name())
-                };
-                if sort_reversed {
-                    ordering.reverse()
-                } else {
-                    ordering
-                }
-            });
 
-            match display_mode {
+            if let Some(field) = opt.sort_field {
+                entries_and_stats.sort_unstable_by(|a, b| {
+                    let mut ordering = match field {
+                        SortField::Time => a.1.mtime.cmp(&b.1.mtime),
+                        SortField::Size => a.1.size.cmp(&b.1.size),
+                        SortField::Name => vercmp(a.0.name(), b.0.name()),
+                    };
+                    if opt.reverse_sorting {
+                        ordering = ordering.reverse();
+                    }
+                    ordering
+                });
+            }
+
+            match opt.display_mode {
                 DisplayMode::Grid(width) => write_grid(&entries_and_stats, &dir, &mut out, width),
-                DisplayMode::Long => {
+                DisplayMode::Long | DisplayMode::Stream => {
                     write_details(&entries_and_stats, &mut uid_usernames, &mut out)
                 }
-                DisplayMode::Column => write_single_column(&entries_and_stats, &mut out),
+                DisplayMode::SingleColumn => write_single_column(&entries_and_stats, &mut out),
             }
         }
 
