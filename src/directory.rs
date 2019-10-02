@@ -16,6 +16,7 @@ enum EntryType {
     Link,
     BrokenLink,
     Fifo,
+    Socket,
     Other,
 }
 
@@ -36,6 +37,7 @@ impl EntryType {
             (BrokenLink, _) => (Some(RedBold), None),
             (Fifo, Suffixes::All) => (Some(YellowBold), Some(b'|')),
             (Fifo, _) => (Some(YellowBold), None),
+            (Socket, _) => (Some(MagentaBold), None),
             (Other, _) => (Some(YellowBold), None),
         }
     }
@@ -51,7 +53,8 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
         let (style, suffix) = match self.d_type() {
             DType::DIR => Directory,
             DType::FIFO => Fifo,
-            DType::CHR | DType::BLK | DType::SOCK => Other,
+            DType::SOCK => Socket,
+            DType::CHR | DType::BLK => Other,
             DType::REG => syscalls::faccessat(dir.raw_fd(), self.name(), libc::X_OK)
                 .map(|_| Executable)
                 .unwrap_or(Regular),
