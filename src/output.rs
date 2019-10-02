@@ -1,4 +1,4 @@
-use crate::cli::{App, Suffixes};
+use crate::cli::App;
 use crate::directory::DirEntry;
 use crate::{Status, Style};
 use alloc::vec;
@@ -249,11 +249,14 @@ pub fn write_grid<T: DirEntry>(
 
     let mut rows = entries.len();
     let mut lengths: Vec<usize> = Vec::with_capacity(entries.len());
+    let mut styles = Vec::with_capacity(entries.len());
     let mut min_len: usize =
-        len_utf8(entries[0].name().as_bytes()) + entries[0].style(dir).1.is_some() as usize;
+        len_utf8(entries[0].name().as_bytes()) + entries[0].style(dir, app).1.is_some() as usize;
     for e in entries {
-        let len = len_utf8(e.name().as_bytes()) + e.style(dir).1.is_some() as usize;
+        let style = e.style(dir, app);
+        let len = len_utf8(e.name().as_bytes()) + style.1.is_some() as usize;
         lengths.push(len);
+        styles.push(style);
         min_len = min_len.min(len);
     }
     let mut widths: SmallVec<[usize; 16]> = lengths
@@ -286,23 +289,18 @@ pub fn write_grid<T: DirEntry>(
 
     for r in 0..rows {
         for (c, width) in widths.iter().enumerate() {
-            let (e, name_len) = match (entries.get(c * rows + r), lengths.get(c * rows + r)) {
-                (Some(e), Some(name_len)) => (e, name_len),
+            let (e, name_len, (style, suffix)) = match (
+                entries.get(c * rows + r),
+                lengths.get(c * rows + r),
+                styles.get(c * rows + r),
+            ) {
+                (Some(e), Some(name_len), Some(style)) => (e, name_len, style),
                 _ => continue,
             };
 
-            let (style, suffix) = e.style(dir);
-            app.out.style(style).write(e.name());
-            match app.suffixes {
-                Suffixes::None => {}
-                Suffixes::Directories => {
-                    if suffix == Some(b'/') {
-                        app.out.style(Style::White).push(b'/');
-                    }
-                }
-                Suffixes::All => {
-                    suffix.map(|s| app.out.style(Style::White).push(s));
-                }
+            app.out.style(*style).write(e.name());
+            if let Some(s) = suffix {
+                app.out.style(Style::White).push(*s);
             }
 
             for _ in 0..(width - name_len) {
@@ -387,6 +385,10 @@ impl BufferedStdout {
             style: Style::Reset,
             is_terminal: false,
         }
+    }
+
+    pub fn is_terminal(&self) -> bool {
+        self.is_terminal
     }
 
     pub fn write<T: Writable>(&mut self, item: T) -> &mut Self {

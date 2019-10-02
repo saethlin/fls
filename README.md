@@ -1,11 +1,31 @@
-This project provides a for-humans style of ls similar to exa while being faster than both exa and GNU ls. This project is currently faster with colorful output and a more sophisticated default sorting order than GNU ls is without colors and lexicographic sorting, and I intend to keep it that way.
+Attempting to write a POSIX-compliant `ls` in Rust that's faster and prettier than GNU's.
 
-## Features/Status
-
-Basic grid output with exa-adjacent coloring is implemented, though I haven't gotten around to adding support for all the varying file names it detects and highlights for.
-
-Supported flags: `-a` (but omitting `.` and `..`), `-l` (missing a few permissions indicators), `-r`, `-t`, `-S`, and `-1`.
-This project uses the GNU `ls -v` sorting order by default.
+- [x] -A
+- [x] -C
+- [x] -F
+- [x] -H
+- [x] -L
+- [ ] -R
+- [x] -S
+- [x] -a
+- [ ] -c
+- [x] -d
+- [x] -f
+- [ ] -g
+- [ ] -i
+- [ ] -k
+- [ ] -l
+- [ ] -m
+- [ ] -n
+- [ ] -o
+- [x] -p
+- [ ] -q
+- [x] -r
+- [ ] -s
+- [ ] -t
+- [ ] -u
+- [ ] -x
+- [ ] -1
 
 ## Motivation
 

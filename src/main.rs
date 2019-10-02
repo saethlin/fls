@@ -115,8 +115,8 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
             if let Some(field) = app.sort_field {
                 files_and_stats.sort_unstable_by(|a, b| {
                     let mut ordering = match field {
-                        SortField::Time => a.1.mtime.cmp(&b.1.mtime),
-                        SortField::Size => a.1.size.cmp(&b.1.size),
+                        SortField::Time => b.1.mtime.cmp(&a.1.mtime),
+                        SortField::Size => b.1.size.cmp(&a.1.size),
                         SortField::Name => vercmp(a.0.name(), b.0.name()),
                     };
                     if app.reverse_sorting {
@@ -170,13 +170,15 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
         }
 
         if !need_details {
-            entries.sort_unstable_by(|a, b| {
-                let mut ordering = vercmp(a.name(), b.name());
-                if app.reverse_sorting {
-                    ordering = ordering.reverse();
-                }
-                ordering
-            });
+            if let Some(SortField::Name) = app.sort_field {
+                entries.sort_unstable_by(|a, b| {
+                    let mut ordering = vercmp(a.name(), b.name());
+                    if app.reverse_sorting {
+                        ordering = ordering.reverse();
+                    }
+                    ordering
+                });
+            }
             match app.display_mode {
                 DisplayMode::Grid(width) => write_grid(&entries, &dir, &mut app, width),
                 DisplayMode::SingleColumn => write_single_column(&entries, &mut app),
@@ -193,8 +195,8 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
             if let Some(field) = app.sort_field {
                 entries_and_stats.sort_unstable_by(|a, b| {
                     let mut ordering = match field {
-                        SortField::Time => a.1.mtime.cmp(&b.1.mtime),
-                        SortField::Size => a.1.size.cmp(&b.1.size),
+                        SortField::Time => b.1.mtime.cmp(&a.1.mtime),
+                        SortField::Size => b.1.size.cmp(&a.1.size),
                         SortField::Name => vercmp(a.0.name(), b.0.name()),
                     };
                     if app.reverse_sorting {
@@ -239,21 +241,6 @@ impl Status {
             Some(Style::Cyan)
         } else if self.mode & libc::S_IXUSR > 0 {
             Some(Style::GreenBold)
-        } else {
-            None
-        }
-    }
-
-    fn suffix(&self) -> Option<u8> {
-        let entry_type = self.mode & libc::S_IFMT;
-        if entry_type == libc::S_IFDIR {
-            Some(b'/')
-        } else if entry_type == libc::S_IFIFO {
-            Some(b'|')
-        } else if entry_type == libc::S_IFLNK {
-            Some(b'@')
-        } else if self.mode & libc::S_IXUSR > 0 {
-            Some(b'*')
         } else {
             None
         }
