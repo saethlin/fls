@@ -168,6 +168,7 @@ impl App {
                 }
                 b'c' => {
                     app.time_field = TimeField::StatusModified;
+                    app.sort_field = Some(SortField::Time);
                 }
                 b'd' => {
                     if !switches.contains(&b'H') && !switches.contains(&b'L') {
@@ -210,10 +211,12 @@ impl App {
                     app.display_size_in_blocks = true;
                 }
                 b't' => {
+                    app.time_field = TimeField::Modified;
                     app.sort_field = Some(SortField::Time);
                 }
                 b'u' => {
                     app.time_field = TimeField::Accessed;
+                    app.sort_field = Some(SortField::Time);
                 }
                 b'x' => {
                     app.grid_sort_direction = SortDirection::Horizontal;
@@ -247,6 +250,22 @@ impl App {
             Err(veneer::Error(-1))
         } else {
             Ok(app)
+        }
+    }
+
+    pub fn convert_status(&self, status: libc::stat64) -> crate::Status {
+        use TimeField::*;
+        crate::Status {
+            mode: status.st_mode,
+            size: status.st_size,
+            blocks: status.st_blocks,
+            uid: status.st_uid,
+            time: match self.time_field {
+                Accessed => status.st_atime,
+                Created => status.st_ctime,
+                Modified => status.st_mtime,
+                StatusModified => status.st_mtime,
+            },
         }
     }
 }

@@ -10,21 +10,21 @@ Attempting to write a POSIX-compliant `ls` in Rust that's faster and prettier th
 - [ ] -R
 - [x] -S
 - [x] -a
-- [ ] -c
+- [x] -c
 - [x] -d
 - [x] -f
 - [ ] -g
 - [ ] -i
 - [ ] -k
 - [ ] -l
-- [ ] -m
+- [x] -m
 - [ ] -n
 - [ ] -o
 - [x] -p
 - [ ] -q
 - [x] -r
-- [ ] -s
-- [ ] -t
-- [ ] -u
+- [x] -s
+- [x] -t
+- [x] -u
 - [ ] -x
-- [ ] -1
+- [x] -1

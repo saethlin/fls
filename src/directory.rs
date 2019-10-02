@@ -66,9 +66,9 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
                 }
             }
             DType::UNKNOWN => if app.follow_symlinks == FollowSymlinks::Always {
-                syscalls::fstatat(dir.raw_fd(), self.name()).map(crate::Status::from)
+                syscalls::fstatat(dir.raw_fd(), self.name()).map(|s| app.convert_status(s))
             } else {
-                syscalls::lstatat(dir.raw_fd(), self.name()).map(crate::Status::from)
+                syscalls::lstatat(dir.raw_fd(), self.name()).map(|s| app.convert_status(s))
             }
             .map(|status| {
                 let entry_type = status.mode & libc::S_IFMT;
@@ -109,9 +109,9 @@ impl<'a> DirEntry for File<'a> {
     fn style(&self, dir: &veneer::Directory, app: &App) -> (Style, Option<u8>) {
         use EntryType::*;
         let entry_type = if app.follow_symlinks == FollowSymlinks::Always {
-            syscalls::fstatat(dir.raw_fd(), self.name()).map(crate::Status::from)
+            syscalls::fstatat(dir.raw_fd(), self.name()).map(|s| app.convert_status(s))
         } else {
-            syscalls::lstatat(dir.raw_fd(), self.name()).map(crate::Status::from)
+            syscalls::lstatat(dir.raw_fd(), self.name()).map(|s| app.convert_status(s))
         }
         .map(|status| {
             let entry_type = status.mode & libc::S_IFMT;

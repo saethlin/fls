@@ -105,16 +105,16 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
             let mut files_and_stats = Vec::with_capacity(files.len());
             let dir = veneer::Directory::open(CStr::from_bytes(b".\0"))?;
             for e in files.iter().cloned() {
-                let stats = Status::from(syscalls::lstatat(dir.raw_fd(), e.name())?);
-                files_and_stats.push((e, stats));
+                let status = app.convert_status(syscalls::lstatat(dir.raw_fd(), e.name())?);
+                files_and_stats.push((e, status));
             }
 
             if let Some(field) = app.sort_field {
                 files_and_stats.sort_unstable_by(|a, b| {
                     let mut ordering = match field {
                         SortField::Time => {
-                            b.1.mtime
-                                .cmp(&a.1.mtime)
+                            b.1.time
+                                .cmp(&a.1.time)
                                 .then_with(|| vercmp(a.0.name(), b.0.name()))
                         }
                         SortField::Size => {
@@ -194,7 +194,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
             let mut entries_and_stats = Vec::new();
             entries_and_stats.reserve(entries.len());
             for e in entries.iter().cloned() {
-                let status = Status::from(syscalls::lstatat(dir.raw_fd(), e.name())?);
+                let status = app.convert_status(syscalls::lstatat(dir.raw_fd(), e.name())?);
                 entries_and_stats.push((e, status));
             }
 
@@ -202,8 +202,8 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                 entries_and_stats.sort_unstable_by(|a, b| {
                     let mut ordering = match field {
                         SortField::Time => {
-                            b.1.mtime
-                                .cmp(&a.1.mtime)
+                            b.1.time
+                                .cmp(&a.1.time)
                                 .then_with(|| vercmp(a.0.name(), b.0.name()))
                         }
                         SortField::Size => {
@@ -239,10 +239,11 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
 }
 
 pub struct Status {
-    pub mode: u32,
-    pub size: i64,
-    pub uid: u32,
-    pub mtime: i64,
+    pub mode: libc::mode_t,
+    pub size: libc::off_t,
+    pub blocks: libc::blkcnt64_t,
+    pub uid: libc::uid_t,
+    pub time: libc::time_t,
 }
 
 impl Status {
@@ -258,17 +259,6 @@ impl Status {
             Some(Style::GreenBold)
         } else {
             None
-        }
-    }
-}
-
-impl From<libc::stat64> for Status {
-    fn from(stats: libc::stat64) -> Self {
-        Self {
-            mode: stats.st_mode,
-            size: stats.st_size,
-            uid: stats.st_uid,
-            mtime: stats.st_mtime,
         }
     }
 }

@@ -192,7 +192,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], app: &mut App) {
 
         let localtime = unsafe {
             let mut localtime = core::mem::zeroed();
-            libc::localtime_r(&stats.mtime, &mut localtime);
+            libc::localtime_r(&stats.time, &mut localtime);
             localtime
         };
 
