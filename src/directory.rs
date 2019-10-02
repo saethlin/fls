@@ -55,16 +55,9 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
             DType::REG => syscalls::faccessat(dir.raw_fd(), self.name(), libc::X_OK)
                 .map(|_| Executable)
                 .unwrap_or(Regular),
-            DType::LNK => {
-                // Explicitly named arguments are
-                if app.follow_symlinks == FollowSymlinks::Always {
-                    syscalls::fstatat(dir.raw_fd(), self.name())
-                        .map(|_| Regular)
-                        .unwrap_or(BrokenLink)
-                } else {
-                    Link
-                }
-            }
+            DType::LNK => syscalls::faccessat(dir.raw_fd(), self.name(), libc::F_OK)
+                .map(|_| Link)
+                .unwrap_or(BrokenLink),
             DType::UNKNOWN => if app.follow_symlinks == FollowSymlinks::Always {
                 syscalls::fstatat(dir.raw_fd(), self.name()).map(|s| app.convert_status(s))
             } else {
