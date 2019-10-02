@@ -94,15 +94,12 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                 ordering
             });
 
+            let dir = veneer::Directory::open(CStr::from_bytes(b".\0"))?;
             match app.display_mode {
-                DisplayMode::Grid(width) => write_grid(
-                    &files,
-                    &veneer::Directory::open(CStr::from_bytes(b".\0"))?,
-                    &mut app,
-                    width,
-                ),
-                DisplayMode::SingleColumn => write_single_column(&files, &mut app),
-                DisplayMode::Long | DisplayMode::Stream => {}
+                DisplayMode::Grid(width) => write_grid(&files, &dir, &mut app, width),
+                DisplayMode::SingleColumn => write_single_column(&files, &dir, &mut app),
+                DisplayMode::Stream => write_stream(&files, &dir, &mut app),
+                DisplayMode::Long => unreachable!(),
             }
         } else {
             let mut files_and_stats = Vec::with_capacity(files.len());
@@ -115,8 +112,16 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
             if let Some(field) = app.sort_field {
                 files_and_stats.sort_unstable_by(|a, b| {
                     let mut ordering = match field {
-                        SortField::Time => b.1.mtime.cmp(&a.1.mtime),
-                        SortField::Size => b.1.size.cmp(&a.1.size),
+                        SortField::Time => {
+                            b.1.mtime
+                                .cmp(&a.1.mtime)
+                                .then_with(|| vercmp(a.0.name(), b.0.name()))
+                        }
+                        SortField::Size => {
+                            b.1.size
+                                .cmp(&a.1.size)
+                                .then_with(|| vercmp(a.0.name(), b.0.name()))
+                        }
                         SortField::Name => vercmp(a.0.name(), b.0.name()),
                     };
                     if app.reverse_sorting {
@@ -129,8 +134,8 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
             match app.display_mode {
                 DisplayMode::Grid(width) => write_grid(&files_and_stats, &dir, &mut app, width),
                 DisplayMode::Long => write_details(&files_and_stats, &mut app),
-                DisplayMode::SingleColumn => write_single_column(&files_and_stats, &mut app),
-                DisplayMode::Stream => {}
+                DisplayMode::SingleColumn => write_single_column(&files_and_stats, &dir, &mut app),
+                DisplayMode::Stream => write_stream(&files_and_stats, &dir, &mut app),
             }
         }
     }
@@ -181,8 +186,9 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
             }
             match app.display_mode {
                 DisplayMode::Grid(width) => write_grid(&entries, &dir, &mut app, width),
-                DisplayMode::SingleColumn => write_single_column(&entries, &mut app),
-                DisplayMode::Long | DisplayMode::Stream => {}
+                DisplayMode::SingleColumn => write_single_column(&entries, &dir, &mut app),
+                DisplayMode::Stream => write_stream(&entries, &dir, &mut app),
+                DisplayMode::Long => unreachable!(),
             }
         } else {
             let mut entries_and_stats = Vec::new();
@@ -195,8 +201,16 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
             if let Some(field) = app.sort_field {
                 entries_and_stats.sort_unstable_by(|a, b| {
                     let mut ordering = match field {
-                        SortField::Time => b.1.mtime.cmp(&a.1.mtime),
-                        SortField::Size => b.1.size.cmp(&a.1.size),
+                        SortField::Time => {
+                            b.1.mtime
+                                .cmp(&a.1.mtime)
+                                .then_with(|| vercmp(a.0.name(), b.0.name()))
+                        }
+                        SortField::Size => {
+                            b.1.size
+                                .cmp(&a.1.size)
+                                .then_with(|| vercmp(a.0.name(), b.0.name()))
+                        }
                         SortField::Name => vercmp(a.0.name(), b.0.name()),
                     };
                     if app.reverse_sorting {
@@ -208,10 +222,11 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
 
             match app.display_mode {
                 DisplayMode::Grid(width) => write_grid(&entries_and_stats, &dir, &mut app, width),
-                DisplayMode::Long | DisplayMode::Stream => {
-                    write_details(&entries_and_stats, &mut app)
+                DisplayMode::Long => write_details(&entries_and_stats, &mut app),
+                DisplayMode::SingleColumn => {
+                    write_single_column(&entries_and_stats, &dir, &mut app)
                 }
-                DisplayMode::SingleColumn => write_single_column(&entries_and_stats, &mut app),
+                DisplayMode::Stream => write_stream(&entries_and_stats, &dir, &mut app),
             }
         }
 

@@ -299,9 +299,7 @@ pub fn write_grid<T: DirEntry>(
             };
 
             app.out.style(*style).write(e.name());
-            if let Some(s) = suffix {
-                app.out.style(Style::White).push(*s);
-            }
+            suffix.map(|s| app.out.style(Style::White).push(s));
 
             for _ in 0..(width - name_len) {
                 app.out.push(b' ');
@@ -311,9 +309,26 @@ pub fn write_grid<T: DirEntry>(
     }
 }
 
-pub fn write_single_column<T: DirEntry>(entries: &[T], app: &mut App) {
+pub fn write_stream<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &mut App) {
+    for e in entries.iter().take(entries.len() - 1) {
+        let (style, suffix) = e.style(dir, app);
+        app.out.style(style).write(e.name());
+        suffix.map(|s| app.out.style(Style::White).push(s));
+
+        app.out.write(b", ");
+    }
+    if let Some(e) = entries.last() {
+        app.out.write(e.name());
+    }
+    app.out.push(b'\n');
+}
+
+pub fn write_single_column<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &mut App) {
     for e in entries {
-        app.out.write(e.name()).push(b'\n');
+        let (style, suffix) = e.style(dir, app);
+        app.out.style(style).write(e.name());
+        suffix.map(|s| app.out.style(Style::White).push(s));
+        app.out.push(b'\n');
     }
 }
 
