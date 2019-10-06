@@ -11,37 +11,29 @@ use veneer::syscalls;
 
 pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directory, app: &mut App) {
     let get_name = |id: libc::uid_t| unsafe {
-        let mut name: SmallVec<[u8; 24]> = SmallVec::new();
-        let pw = libc::getpwuid(id);
-        if !pw.is_null() {
-            let name_ptr = (*pw).pw_name;
+        core::ptr::NonNull::new(libc::getpwuid(id)).map(|pw| {
+            let mut name: SmallVec<[u8; 24]> = SmallVec::new();
+            let name_ptr = pw.as_ref().pw_name;
             let mut offset = 0;
             while *name_ptr.offset(offset) != 0 {
                 name.push(*name_ptr.offset(offset) as u8);
                 offset += 1;
             }
             name
-        } else {
-            name.extend_from_slice(itoa::Buffer::new().format(id).as_bytes());
-            name
-        }
+        })
     };
 
     let get_group = |id: libc::gid_t| unsafe {
-        let mut name: SmallVec<[u8; 24]> = SmallVec::new();
-        let gr = libc::getgrgid(id);
-        if !gr.is_null() {
-            let name_ptr = (*gr).gr_name;
+        core::ptr::NonNull::new(libc::getgrgid(id)).map(|gr| {
+            let mut group: SmallVec<[u8; 24]> = SmallVec::new();
+            let group_ptr = gr.as_ref().gr_name;
             let mut offset = 0;
-            while *name_ptr.offset(offset) != 0 {
-                name.push(*name_ptr.offset(offset) as u8);
+            while *group_ptr.offset(offset) != 0 {
+                group.push(*group_ptr.offset(offset) as u8);
                 offset += 1;
             }
-            name
-        } else {
-            name.extend_from_slice(itoa::Buffer::new().format(id).as_bytes());
-            name
-        }
+            group
+        })
     };
 
     let mut longest_name_len = 0;
@@ -56,8 +48,9 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
                 let name = if app.convert_id_to_name {
                     get_name(status.uid)
                 } else {
-                    itoa::Buffer::new().format(status.uid).bytes().collect()
-                };
+                    None
+                }
+                .unwrap_or_else(|| itoa::Buffer::new().format(status.uid).bytes().collect());
                 longest_name_len = longest_name_len.max(name.len());
                 app.uid_names.push((status.uid, name));
             }
@@ -68,14 +61,19 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
                 let group = if app.convert_id_to_name {
                     get_group(status.gid)
                 } else {
-                    itoa::Buffer::new().format(status.gid).bytes().collect()
-                };
+                    None
+                }
+                .unwrap_or_else(|| itoa::Buffer::new().format(status.gid).bytes().collect());
                 longest_group_len = longest_group_len.max(group.len());
                 app.gid_names.push((status.gid, group));
             }
         }
 
-        largest_size = largest_size.max(status.size as usize);
+        largest_size = largest_size.max(if app.display_size_in_blocks {
+            status.blocks
+        } else {
+            status.size
+        } as usize);
         largest_links = largest_links.max(status.links as usize);
         blocks += status.blocks;
     }
@@ -203,10 +201,14 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
             }
         }
 
-        app.out
-            .push(b' ')
-            .style(Style::GreenBold)
-            .align_right(status.size as usize, largest_size);
+        app.out.push(b' ').style(Style::GreenBold).align_right(
+            if app.display_size_in_blocks {
+                status.blocks
+            } else {
+                status.size
+            } as usize,
+            largest_size,
+        );
 
         /*
         use libm::F32Ext;
@@ -291,8 +293,8 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         app.out.push(b' ');
 
         let (style, suffix) = direntry.style(dir, app);
-        app.out.style(style).write(e.name()).style(Style::White);
-        suffix.map(|s| app.out.push(s));
+        app.out.style(style).write(e.name());
+        suffix.map(|s| app.out.style(Style::White).push(s));
 
         if entry_type == libc::S_IFLNK {
             let mut buf = [0u8; 1024];
@@ -384,7 +386,7 @@ pub fn write_stream<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &m
         app.out.style(style).write(e.name());
         suffix.map(|s| app.out.style(Style::White).push(s));
 
-        app.out.write(b", ");
+        app.out.style(Style::White).write(b", ");
     }
     if let Some(e) = entries.last() {
         app.out.write(e.name());
@@ -518,6 +520,7 @@ impl BufferedStdout {
 
 impl Drop for BufferedStdout {
     fn drop(&mut self) {
+        self.style(Style::Reset);
         write_to_stdout(&self.buf);
     }
 }

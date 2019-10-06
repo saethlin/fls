@@ -11,11 +11,11 @@ Attempting to write a POSIX-compliant `ls` in Rust that's faster and prettier th
 - [x] -S sort by size
 - [x] -a do not ignore entries whose names begin with `.`
 - [x] -c sort by ctime
-- [ ] -d list directories themselves, not their contents
+- [x] -d list directories themselves, not their contents
 - [x] -f do not sort
 - [x] -g long format but without owner
 - [ ] -i print each entry's inode
-- [ ] -k treat block size to 1024 bytes
+- [ ] -k pretend block size is 1024 bytes
 - [x] -l long format
 - [x] -m single row, separated by `, `
 - [x] -n long format but list uid and gid instead of names

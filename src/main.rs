@@ -57,19 +57,6 @@ use veneer::syscalls;
 use veneer::CStr;
 use veneer::Error;
 
-/// This overrides the provided libc's memcpy implementation.
-/// glibc bumped the version of memcpy recently, without this hack `fls` binaries compiled against
-/// a recent version of glibc will not run on older systems.
-/// This might be a ~5% perf regression, but it's hard to measure at this level.
-#[no_mangle]
-pub unsafe extern "C" fn memcpy(mut dst: *mut u8, mut src: *const u8, count: usize) {
-    for _ in 0..count {
-        *dst = *src;
-        dst = dst.offset(1);
-        src = src.offset(1);
-    }
-}
-
 #[no_mangle]
 pub unsafe extern "C" fn main(argc: isize, argv: *const *const libc::c_char) -> i32 {
     let args = (0..argc).map(|i| CStr::from_ptr(*argv.offset(i))).collect();
@@ -92,20 +79,26 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
     let mut dirs = Vec::new();
     let mut files = Vec::new();
 
-    for arg in app.args.clone() {
-        match veneer::Directory::open(arg) {
-            Ok(d) => dirs.push((arg, d)),
-            Err(Error(20)) => files.push(crate::directory::File { path: arg }),
-            Err(e) => {
-                let mut buf = itoa::Buffer::new();
-                app.out
-                    .write(arg)
-                    .write(b": OS error ")
-                    .write(buf.format(e.0).as_bytes())
-                    .push(b' ')
-                    .write(e.msg().as_bytes())
-                    .push(b'\n');
+    if app.list_directory_contents {
+        for arg in app.args.clone() {
+            match veneer::Directory::open(arg) {
+                Ok(d) => dirs.push((arg, d)),
+                Err(Error(20)) => files.push(crate::directory::File { path: arg }),
+                Err(e) => {
+                    let mut buf = itoa::Buffer::new();
+                    app.out
+                        .write(arg)
+                        .write(b": OS error ")
+                        .write(buf.format(e.0).as_bytes())
+                        .push(b' ')
+                        .write(e.msg().as_bytes())
+                        .push(b'\n');
+                }
             }
+        }
+    } else {
+        for arg in app.args.clone() {
+            files.push(crate::directory::File { path: arg })
         }
     }
 
