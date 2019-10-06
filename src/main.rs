@@ -57,6 +57,19 @@ use veneer::syscalls;
 use veneer::CStr;
 use veneer::Error;
 
+/// This overrides the provided libc's memcpy implementation.
+/// glibc bumped the version of memcpy recently, without this hack `fls` binaries compiled against
+/// a recent version of glibc will not run on older systems.
+/// This might be a ~5% perf regression, but it's hard to measure at this level.
+#[no_mangle]
+pub unsafe extern "C" fn memcpy(mut dst: *mut u8, mut src: *const u8, count: usize) {
+    for _ in 0..count {
+        *dst = *src;
+        dst = dst.offset(1);
+        src = src.offset(1);
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn main(argc: isize, argv: *const *const libc::c_char) -> i32 {
     let args = (0..argc).map(|i| CStr::from_ptr(*argv.offset(i))).collect();
@@ -206,7 +219,12 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
             let mut entries_and_stats = Vec::new();
             entries_and_stats.reserve(entries.len());
             for e in entries.iter().cloned() {
-                let status = app.convert_status(syscalls::lstatat(dir.raw_fd(), e.name())?);
+                let status = if app.follow_symlinks == cli::FollowSymlinks::Always {
+                    syscalls::fstatat(dir.raw_fd(), e.name())
+                } else {
+                    syscalls::lstatat(dir.raw_fd(), e.name())
+                }
+                .map(|status| app.convert_status(status))?;
                 entries_and_stats.push((e, status));
             }
 
@@ -258,21 +276,4 @@ pub struct Status {
     pub uid: libc::uid_t,
     pub gid: libc::gid_t,
     pub time: libc::time_t,
-}
-
-impl Status {
-    fn style(&self) -> Option<Style> {
-        let entry_type = self.mode & libc::S_IFMT;
-        if entry_type == libc::S_IFDIR {
-            Some(Style::BlueBold)
-        } else if entry_type == libc::S_IFIFO {
-            Some(Style::Yellow)
-        } else if entry_type == libc::S_IFLNK {
-            Some(Style::CyanBold)
-        } else if self.mode & libc::S_IXUSR > 0 {
-            Some(Style::GreenBold)
-        } else {
-            None
-        }
-    }
 }

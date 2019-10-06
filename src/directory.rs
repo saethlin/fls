@@ -150,7 +150,6 @@ pub fn extension_style(name: &[u8]) -> Style {
     }
 }
 
-// TODO: We can use the status to get the style information we want here
 impl<T> DirEntry for (T, crate::Status)
 where
     T: DirEntry,
@@ -159,7 +158,30 @@ where
         self.0.name()
     }
 
-    fn style(&self, fd: &veneer::Directory, app: &App) -> (Style, Option<u8>) {
-        self.0.style(fd, app)
+    fn style(&self, _fd: &veneer::Directory, app: &App) -> (Style, Option<u8>) {
+        use EntryType::*;
+        let entry_type = self.1.mode & libc::S_IFMT;
+        let (style, suffix) = if entry_type == libc::S_IFDIR {
+            Directory
+        } else if entry_type == libc::S_IFIFO {
+            Fifo
+        } else if entry_type == libc::S_IFSOCK {
+            Socket
+        } else if entry_type == libc::S_IFLNK {
+            Link
+        } else if self.1.mode & libc::S_IXUSR > 0 {
+            Executable
+        } else if entry_type == libc::S_IFREG {
+            Regular
+        } else {
+            Other
+        }
+        .style(app);
+
+        if let Some(style) = style {
+            (style, suffix)
+        } else {
+            (extension_style(self.name().as_bytes()), suffix)
+        }
     }
 }

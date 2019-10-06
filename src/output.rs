@@ -50,22 +50,22 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
     let mut largest_links = 0;
     let mut blocks = 0;
 
-    for (_, stats) in entries {
-        if !app.uid_names.iter().any(|(id, _)| *id == stats.uid) {
-            let name = get_name(stats.uid);
+    for (_, status) in entries {
+        if !app.uid_names.iter().any(|(id, _)| *id == status.uid) {
+            let name = get_name(status.uid);
             longest_name_len = longest_name_len.max(name.len());
-            app.uid_names.push((stats.uid, name));
+            app.uid_names.push((status.uid, name));
         }
 
-        if !app.gid_names.iter().any(|(id, _)| *id == stats.gid) {
-            let group = get_group(stats.gid);
+        if !app.gid_names.iter().any(|(id, _)| *id == status.gid) {
+            let group = get_group(status.gid);
             longest_group_len = longest_group_len.max(group.len());
-            app.gid_names.push((stats.gid, group));
+            app.gid_names.push((status.gid, group));
         }
 
-        largest_size = largest_size.max(stats.size as usize);
-        largest_links = largest_links.max(stats.links as usize);
-        blocks += stats.blocks;
+        largest_size = largest_size.max(status.size as usize);
+        largest_links = largest_links.max(status.links as usize);
+        blocks += status.blocks;
     }
 
     let mut buf = itoa::Buffer::new();
@@ -84,8 +84,10 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         localtime.tm_year
     };
 
-    for (e, stats) in entries {
-        let mode = stats.mode;
+    for direntry in entries {
+        let e = &direntry.0;
+        let status = &direntry.1;
+        let mode = status.mode;
 
         let entry_type = mode & libc::S_IFMT;
         if entry_type == libc::S_IFDIR {
@@ -153,13 +155,13 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         app.out
             .push(b' ')
             .style(Style::White)
-            .align_right(stats.links as usize, largest_links);
+            .align_right(status.links as usize, largest_links);
 
         app.out.push(b' ').style(Style::YellowBold);
         let name = app
             .uid_names
             .iter()
-            .find(|&(id, _)| *id == stats.uid)
+            .find(|&(id, _)| *id == status.uid)
             .map(|(_, name)| name.clone())
             .unwrap_or_default();
         app.out.write(name.as_ref());
@@ -173,7 +175,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         let group = app
             .gid_names
             .iter()
-            .find(|&(id, _)| *id == stats.gid)
+            .find(|&(id, _)| *id == status.gid)
             .map(|(_, group)| group.clone())
             .unwrap_or_default();
         app.out.write(group.as_ref());
@@ -187,7 +189,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         app.out
             .push(b' ')
             .style(Style::GreenBold)
-            .align_right(stats.size as usize, largest_size);
+            .align_right(status.size as usize, largest_size);
 
         /*
         use libm::F32Ext;
@@ -212,18 +214,18 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
             }
         };
 
-        if stats.size > gigabyte {
-            write_converted(stats.size, gigabyte);
+        if status.size > gigabyte {
+            write_converted(status.size, gigabyte);
             app.out.push(b'G');
-        } else if stats.size > megabyte {
-            write_converted(stats.size, megabyte);
+        } else if status.size > megabyte {
+            write_converted(status.size, megabyte);
             app.out.push(b'M');
-        } else if stats.size > kilobyte {
-            write_converted(stats.size, kilobyte);
+        } else if status.size > kilobyte {
+            write_converted(status.size, kilobyte);
             app.out.push(b'K');
         } else {
             let mut buf = itoa::Buffer::new();
-            let size = buf.format(stats.size);
+            let size = buf.format(status.size);
             for _ in 0..(4 - size.len()) {
                 app.out.push(b' ');
             }
@@ -234,7 +236,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
 
         let localtime = unsafe {
             let mut localtime = core::mem::zeroed();
-            libc::localtime_r(&stats.time, &mut localtime);
+            libc::localtime_r(&status.time, &mut localtime);
             localtime
         };
 
@@ -271,12 +273,9 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
 
         app.out.push(b' ');
 
-        app.out.style(
-            stats
-                .style()
-                .unwrap_or_else(|| crate::directory::extension_style(e.name().as_bytes())),
-        );
-        app.out.write(e.name()).style(Style::Reset);
+        let (style, suffix) = direntry.style(dir, app);
+        app.out.style(style).write(e.name()).style(Style::White);
+        suffix.map(|s| app.out.push(s));
 
         if entry_type == libc::S_IFLNK {
             let mut buf = [0u8; 1024];
