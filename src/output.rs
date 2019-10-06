@@ -43,30 +43,26 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
     let mut blocks = 0;
 
     for (_, status) in entries {
-        if app.print_owner {
-            if !app.uid_names.iter().any(|(id, _)| *id == status.uid) {
-                let name = if app.convert_id_to_name {
-                    get_name(status.uid)
-                } else {
-                    None
-                }
-                .unwrap_or_else(|| itoa::Buffer::new().format(status.uid).bytes().collect());
-                longest_name_len = longest_name_len.max(name.len());
-                app.uid_names.push((status.uid, name));
+        if app.print_owner && !app.uid_names.iter().any(|(id, _)| *id == status.uid) {
+            let name = if app.convert_id_to_name {
+                get_name(status.uid)
+            } else {
+                None
             }
+            .unwrap_or_else(|| itoa::Buffer::new().format(status.uid).bytes().collect());
+            longest_name_len = longest_name_len.max(name.len());
+            app.uid_names.push((status.uid, name));
         }
 
-        if app.print_group {
-            if !app.gid_names.iter().any(|(id, _)| *id == status.gid) {
-                let group = if app.convert_id_to_name {
-                    get_group(status.gid)
-                } else {
-                    None
-                }
-                .unwrap_or_else(|| itoa::Buffer::new().format(status.gid).bytes().collect());
-                longest_group_len = longest_group_len.max(group.len());
-                app.gid_names.push((status.gid, group));
+        if app.print_group && !app.gid_names.iter().any(|(id, _)| *id == status.gid) {
+            let group = if app.convert_id_to_name {
+                get_group(status.gid)
+            } else {
+                None
             }
+            .unwrap_or_else(|| itoa::Buffer::new().format(status.gid).bytes().collect());
+            longest_group_len = longest_group_len.max(group.len());
+            app.gid_names.push((status.gid, group));
         }
 
         largest_size = largest_size.max(if app.display_size_in_blocks {
@@ -209,49 +205,6 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
             } as usize,
             largest_size,
         );
-
-        /*
-        use libm::F32Ext;
-
-        let gigabyte = 1024 * 1024 * 1024;
-        let megabyte = 1024 * 1024;
-        let kilobyte = 1024;
-
-        let mut write_converted = |value: libc::off_t, unit: i64| {
-            let mut buf = itoa::Buffer::new();
-            let converted = (value as f32) / unit as f32;
-            let size = buf
-                .format(((value as f32) / unit as f32 * 10.).round() as u32)
-                .as_bytes();
-            if converted < 10. {
-                app.out.write(&[size[0], b'.', size[1]]);
-            } else if converted < 100. {
-                app.out.push(b' ');
-                app.out.write(&size[..2]);
-            } else {
-                app.out.write(&size[..3]);
-            }
-        };
-
-        if status.size > gigabyte {
-            write_converted(status.size, gigabyte);
-            app.out.push(b'G');
-        } else if status.size > megabyte {
-            write_converted(status.size, megabyte);
-            app.out.push(b'M');
-        } else if status.size > kilobyte {
-            write_converted(status.size, kilobyte);
-            app.out.push(b'K');
-        } else {
-            let mut buf = itoa::Buffer::new();
-            let size = buf.format(status.size);
-            for _ in 0..(4 - size.len()) {
-                app.out.push(b' ');
-            }
-            app.out.write(size);
-        }
-        app.out.push(b' ');
-        */
 
         let localtime = unsafe {
             let mut localtime = core::mem::zeroed();

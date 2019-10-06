@@ -123,7 +123,12 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
             let mut files_and_stats = Vec::with_capacity(files.len());
             let dir = veneer::Directory::open(CStr::from_bytes(b".\0"))?;
             for e in files.iter().cloned() {
-                let status = app.convert_status(syscalls::lstatat(dir.raw_fd(), e.name())?);
+                let status = if app.follow_symlinks == cli::FollowSymlinks::Always {
+                    syscalls::fstatat(dir.raw_fd(), e.name())
+                } else {
+                    syscalls::lstatat(dir.raw_fd(), e.name())
+                }
+                .map(|status| app.convert_status(status))?;
                 files_and_stats.push((e, status));
             }
 
