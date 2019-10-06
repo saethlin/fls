@@ -51,16 +51,28 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
     let mut blocks = 0;
 
     for (_, status) in entries {
-        if !app.uid_names.iter().any(|(id, _)| *id == status.uid) {
-            let name = get_name(status.uid);
-            longest_name_len = longest_name_len.max(name.len());
-            app.uid_names.push((status.uid, name));
+        if app.print_owner {
+            if !app.uid_names.iter().any(|(id, _)| *id == status.uid) {
+                let name = if app.convert_id_to_name {
+                    get_name(status.uid)
+                } else {
+                    itoa::Buffer::new().format(status.uid).bytes().collect()
+                };
+                longest_name_len = longest_name_len.max(name.len());
+                app.uid_names.push((status.uid, name));
+            }
         }
 
-        if !app.gid_names.iter().any(|(id, _)| *id == status.gid) {
-            let group = get_group(status.gid);
-            longest_group_len = longest_group_len.max(group.len());
-            app.gid_names.push((status.gid, group));
+        if app.print_group {
+            if !app.gid_names.iter().any(|(id, _)| *id == status.gid) {
+                let group = if app.convert_id_to_name {
+                    get_group(status.gid)
+                } else {
+                    itoa::Buffer::new().format(status.gid).bytes().collect()
+                };
+                longest_group_len = longest_group_len.max(group.len());
+                app.gid_names.push((status.gid, group));
+            }
         }
 
         largest_size = largest_size.max(status.size as usize);
@@ -157,32 +169,37 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
             .style(Style::White)
             .align_right(status.links as usize, largest_links);
 
-        app.out.push(b' ').style(Style::YellowBold);
-        let name = app
-            .uid_names
-            .iter()
-            .find(|&(id, _)| *id == status.uid)
-            .map(|(_, name)| name.clone())
-            .unwrap_or_default();
-        app.out.write(name.as_ref());
-        // apply padding
-        if name.len() < longest_name_len {
-            for _ in 0..longest_name_len - name.len() {
-                app.out.push(b' ');
+        if app.print_owner {
+            app.out.push(b' ').style(Style::YellowBold);
+            let name = app
+                .uid_names
+                .iter()
+                .find(|&(id, _)| *id == status.uid)
+                .map(|(_, name)| name.clone())
+                .unwrap_or_default();
+            app.out.write(name.as_ref());
+            // apply padding
+            if name.len() < longest_name_len {
+                for _ in 0..longest_name_len - name.len() {
+                    app.out.push(b' ');
+                }
             }
         }
-        app.out.push(b' ');
-        let group = app
-            .gid_names
-            .iter()
-            .find(|&(id, _)| *id == status.gid)
-            .map(|(_, group)| group.clone())
-            .unwrap_or_default();
-        app.out.write(group.as_ref());
-        // apply padding
-        if group.len() < longest_group_len {
-            for _ in 0..longest_group_len - group.len() {
-                app.out.push(b' ');
+
+        if app.print_group {
+            app.out.push(b' ').style(Style::YellowBold);
+            let group = app
+                .gid_names
+                .iter()
+                .find(|&(id, _)| *id == status.gid)
+                .map(|(_, group)| group.clone())
+                .unwrap_or_default();
+            app.out.write(group.as_ref());
+            // apply padding
+            if group.len() < longest_group_len {
+                for _ in 0..longest_group_len - group.len() {
+                    app.out.push(b' ');
+                }
             }
         }
 
@@ -243,7 +260,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         app.out
             .push(b' ')
             .style(Style::Blue)
-            .write(month_abbr(localtime.tm_mon as u32))
+            .write(month_abbr(localtime.tm_mon))
             .push(b' ');
 
         let mut buf = itoa::Buffer::new();
@@ -512,7 +529,7 @@ fn write_to_stdout(bytes: &[u8]) {
     }
 }
 
-fn month_abbr(month: u32) -> &'static [u8] {
+fn month_abbr(month: libc::c_int) -> &'static [u8] {
     let month_names = [
         b"Jan", b"Feb", b"Mar", b"Apr", b"May", b"Jun", b"Jul", b"Aug", b"Sep", b"Oct", b"Nov",
         b"Dec",

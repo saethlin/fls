@@ -19,6 +19,9 @@ pub struct App {
     pub time_field: TimeField,
     pub list_directory_contents: bool,
     pub out: BufferedStdout,
+    pub convert_id_to_name: bool,
+    pub print_owner: bool,
+    pub print_group: bool,
 
     pub args: Vec<CStr<'static>>,
     pub uid_names: Vec<(u32, SmallVec<[u8; 24]>)>,
@@ -121,6 +124,9 @@ impl App {
             sort_field: Some(SortField::Name),
             time_field: TimeField::Modified,
             list_directory_contents: true,
+            convert_id_to_name: true,
+            print_owner: true,
+            print_group: true,
             out: BufferedStdout::terminal(),
             args,
             uid_names: Vec::new(),
@@ -173,7 +179,8 @@ impl App {
                     app.show_all = ShowAll::Yes;
                 }
                 b'g' => {
-                    app.display_mode = DisplayMode::Long; // TODO: Disable owner column
+                    app.display_mode = DisplayMode::Long;
+                    app.print_owner = false;
                 }
                 b'i' => {
                     app.inode = true;
@@ -188,7 +195,12 @@ impl App {
                     app.display_mode = DisplayMode::Stream;
                 }
                 b'n' => {
-                    app.display_mode = DisplayMode::Long; // TODO: Display UID/GID instead of name
+                    app.display_mode = DisplayMode::Long;
+                    app.convert_id_to_name = false;
+                }
+                b'o' => {
+                    app.display_mode = DisplayMode::Long;
+                    app.print_group = false;
                 }
                 b'p' => {
                     app.suffixes = Suffixes::Directories;

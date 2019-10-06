@@ -13,13 +13,13 @@ Attempting to write a POSIX-compliant `ls` in Rust that's faster and prettier th
 - [x] -c sort by ctime
 - [ ] -d list directories themselves, not their contents
 - [x] -f do not sort
-- [ ] -g long format but without owner
-- [ ] -i print each entrie's inode
+- [x] -g long format but without owner
+- [ ] -i print each entry's inode
 - [ ] -k treat block size to 1024 bytes
-- [ ] -l long format
+- [x] -l long format
 - [x] -m single row, separated by `, `
-- [ ] -n long format but list uid and gid instead of names
-- [ ] -o long format but without groups
+- [x] -n long format but list uid and gid instead of names
+- [x] -o long format but without groups
 - [x] -p append an indicator to directories
 - [ ] -q replace non-printable characters with `?`
 - [x] -r reverse sorting order
