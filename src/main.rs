@@ -1,6 +1,8 @@
 #![no_main]
 #![no_std]
 #![feature(lang_items, alloc_error_handler)]
+// Functions should not be broken up unless they contain reusable parts
+#![allow(clippy::cognitive_complexity)]
 
 #[lang = "eh_personality"]
 #[no_mangle]
@@ -23,6 +25,20 @@ fn alloc_error(_: core::alloc::Layout) -> ! {
 #[global_allocator]
 static ALLOC: veneer::LibcAllocator = veneer::LibcAllocator;
 
+mod output;
+
+macro_rules! error {
+    ($($item:expr),+) => {
+        {
+        use crate::output::Writable;
+        use alloc::vec::Vec;
+        let mut output = Vec::new();
+        output.extend(b"fls: ");
+        $(output.extend_from_slice($item.bytes_repr());)*
+        let _ = veneer::syscalls::write(2, output.as_slice());
+    }};
+}
+
 extern crate alloc;
 use alloc::vec::Vec;
 use smallvec::SmallVec;
@@ -30,7 +46,6 @@ use smallvec::SmallVec;
 pub mod cli;
 mod directory;
 mod error;
-mod output;
 mod style;
 
 use cli::{DisplayMode, ShowAll, SortField};
@@ -43,11 +58,8 @@ use veneer::CStr;
 use veneer::Error;
 
 #[no_mangle]
-pub extern "C" fn main(argc: i32, argv: *const *const libc::c_char) -> i32 {
-    let mut args = Vec::with_capacity(argc as usize);
-    for i in 0..argc {
-        args.push(unsafe { CStr::from_ptr(*argv.offset(i as isize)) });
-    }
+pub unsafe extern "C" fn main(argc: isize, argv: *const *const libc::c_char) -> i32 {
+    let args = (0..argc).map(|i| CStr::from_ptr(*argv.offset(i))).collect();
 
     match run(args) {
         Ok(()) => 0,
@@ -133,7 +145,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
 
             match app.display_mode {
                 DisplayMode::Grid(width) => write_grid(&files_and_stats, &dir, &mut app, width),
-                DisplayMode::Long => write_details(&files_and_stats, &mut app),
+                DisplayMode::Long => write_details(&files_and_stats, &dir, &mut app),
                 DisplayMode::SingleColumn => write_single_column(&files_and_stats, &dir, &mut app),
                 DisplayMode::Stream => write_stream(&files_and_stats, &dir, &mut app),
             }
@@ -222,7 +234,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
 
             match app.display_mode {
                 DisplayMode::Grid(width) => write_grid(&entries_and_stats, &dir, &mut app, width),
-                DisplayMode::Long => write_details(&entries_and_stats, &mut app),
+                DisplayMode::Long => write_details(&entries_and_stats, &dir, &mut app),
                 DisplayMode::SingleColumn => {
                     write_single_column(&entries_and_stats, &dir, &mut app)
                 }
@@ -239,10 +251,12 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
 }
 
 pub struct Status {
+    pub links: libc::nlink_t,
     pub mode: libc::mode_t,
     pub size: libc::off_t,
     pub blocks: libc::blkcnt64_t,
     pub uid: libc::uid_t,
+    pub gid: libc::gid_t,
     pub time: libc::time_t,
 }
 

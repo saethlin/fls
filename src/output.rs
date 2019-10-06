@@ -9,32 +9,55 @@ use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOT
 use unicode_segmentation::UnicodeSegmentation;
 use veneer::syscalls;
 
-pub fn write_details<T: DirEntry>(entries: &[(T, Status)], app: &mut App) {
-    let mut longest_name_len = 0;
-    for (_, stats) in entries {
-        if !app.uid_usernames.iter().any(|(uid, _)| *uid == stats.uid) {
-            unsafe {
-                let pw = libc::getpwuid(stats.uid);
-                if !pw.is_null() {
-                    let name_ptr = (*pw).pw_name;
-                    let mut offset = 0;
-                    let mut name: SmallVec<[u8; 24]> = SmallVec::new();
-                    while *name_ptr.offset(offset) != 0 {
-                        name.push(*name_ptr.offset(offset) as u8);
-                        offset += 1;
-                    }
-                    longest_name_len = longest_name_len.max(name.len());
-                    app.uid_usernames.push((stats.uid, name));
-                } else {
-                    let mut buf = itoa::Buffer::new();
-                    let mut name: SmallVec<[u8; 24]> = SmallVec::new();
-                    name.extend_from_slice(buf.format(stats.uid).as_bytes());
-                    longest_name_len = longest_name_len.max(name.len());
-                    app.uid_usernames.push((stats.uid, name));
-                }
+pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directory, app: &mut App) {
+    let get_name = |id: libc::id_t| unsafe {
+        let pw = libc::getpwuid(id);
+        if !pw.is_null() {
+            let name_ptr = (*pw).pw_name;
+            let mut offset = 0;
+            let mut name: SmallVec<[u8; 24]> = SmallVec::new();
+            while *name_ptr.offset(offset) != 0 {
+                name.push(*name_ptr.offset(offset) as u8);
+                offset += 1;
             }
+            name
+        } else {
+            let mut buf = itoa::Buffer::new();
+            let mut name: SmallVec<[u8; 24]> = SmallVec::new();
+            name.extend_from_slice(buf.format(id).as_bytes());
+            name
         }
+    };
+
+    let mut longest_name_len = 0;
+    let mut longest_group_len = 0;
+    let mut largest_size = 0;
+    let mut blocks = 0;
+
+    for (_, stats) in entries {
+        if !app.id_usernames.iter().any(|(id, _)| *id == stats.uid) {
+            let name = get_name(stats.uid);
+            longest_name_len = longest_name_len.max(name.len());
+            app.id_usernames.push((stats.uid, name));
+        }
+
+        if !app.id_usernames.iter().any(|(id, _)| *id == stats.gid) {
+            let group = get_name(stats.uid);
+            longest_group_len = longest_name_len.max(group.len());
+            app.id_usernames.push((stats.gid, group));
+        }
+
+        largest_size = largest_size.max(stats.size as usize);
+        blocks += stats.blocks;
     }
+
+    let mut buf = itoa::Buffer::new();
+    app.out
+        .write(b"total ")
+        .write(buf.format(blocks))
+        .push(b'\n');
+
+    largest_size = buf.format(largest_size).len();
 
     let current_year = unsafe {
         let mut localtime = core::mem::zeroed();
@@ -109,21 +132,64 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], app: &mut App) {
             app.out.style(Style::Gray).push(b'-');
         }
 
-        app.out.push(b' ').style(Style::GreenBold);
+        let mut buf = itoa::Buffer::new();
+        app.out
+            .style(Style::White)
+            .push(b' ')
+            .write(buf.format(stats.links))
+            .push(b' ');
 
+        app.out.style(Style::YellowBold);
+        let name = app
+            .id_usernames
+            .iter()
+            .find(|&(id, _)| *id == stats.uid)
+            .map(|(_, name)| name.clone())
+            .unwrap_or_default();
+        app.out.write(name.as_ref());
+        // apply padding
+        if name.len() < longest_name_len {
+            for _ in 0..longest_name_len - name.len() {
+                app.out.push(b' ');
+            }
+        }
+        app.out.push(b' ');
+        let group = app
+            .id_usernames
+            .iter()
+            .find(|&(id, _)| *id == stats.gid)
+            .map(|(_, group)| group.clone())
+            .unwrap_or_default();
+        app.out.write(group.as_ref());
+        // apply padding
+        if group.len() < longest_group_len {
+            for _ in 0..longest_group_len - group.len() {
+                app.out.push(b' ');
+            }
+        }
+
+        app.out.push(b' ').style(Style::GreenBold);
+        let mut buf = itoa::Buffer::new();
+        let size_str = buf.format(stats.size);
+        if size_str.len() < largest_size {
+            for _ in 0..largest_size - size_str.len() {
+                app.out.push(b' ');
+            }
+        }
+        app.out.write(size_str).push(b' ');
+
+        /*
         use libm::F32Ext;
 
         let gigabyte = 1024 * 1024 * 1024;
         let megabyte = 1024 * 1024;
         let kilobyte = 1024;
 
-        if entry_type == libc::S_IFDIR {
-            app.out.write(b"    ");
-        } else if stats.size > gigabyte {
+        let mut write_converted = |value: libc::off_t, unit: i64| {
             let mut buf = itoa::Buffer::new();
-            let converted = (stats.size as f32) / gigabyte as f32;
+            let converted = (value as f32) / unit as f32;
             let size = buf
-                .format(((stats.size as f32) / gigabyte as f32 * 10.).round() as u32)
+                .format(((value as f32) / unit as f32 * 10.).round() as u32)
                 .as_bytes();
             if converted < 10. {
                 app.out.write(&[size[0], b'.', size[1]]);
@@ -133,36 +199,16 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], app: &mut App) {
             } else {
                 app.out.write(&size[..3]);
             }
+        };
+
+        if stats.size > gigabyte {
+            write_converted(stats.size, gigabyte);
             app.out.push(b'G');
-        } else if stats.size > 1_000_000 {
-            let mut buf = itoa::Buffer::new();
-            let converted = (stats.size as f32) / megabyte as f32;
-            let size = buf
-                .format(((stats.size as f32) / megabyte as f32 * 10.).round() as u32)
-                .as_bytes();
-            if converted < 10. {
-                app.out.write(&[size[0], b'.', size[1]]);
-            } else if converted < 100. {
-                app.out.push(b' ');
-                app.out.write(&size[..2]);
-            } else {
-                app.out.write(&size[..3]);
-            }
+        } else if stats.size > megabyte {
+            write_converted(stats.size, megabyte);
             app.out.push(b'M');
-        } else if stats.size > 1_000 {
-            let mut buf = itoa::Buffer::new();
-            let converted = (stats.size as f32) / kilobyte as f32;
-            let size = buf
-                .format(((stats.size as f32) / kilobyte as f32 * 10.).round() as u32)
-                .as_bytes();
-            if converted < 10. {
-                app.out.write(&[size[0], b'.', size[1]]);
-            } else if converted < 100. {
-                app.out.push(b' ');
-                app.out.write(&size[..2]);
-            } else {
-                app.out.write(&size[..3]);
-            }
+        } else if stats.size > kilobyte {
+            write_converted(stats.size, kilobyte);
             app.out.push(b'K');
         } else {
             let mut buf = itoa::Buffer::new();
@@ -173,22 +219,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], app: &mut App) {
             app.out.write(size);
         }
         app.out.push(b' ');
-
-        app.out.style(Style::YellowBold);
-        let name = app
-            .uid_usernames
-            .iter()
-            .find(|&(uid, _)| *uid == stats.uid)
-            .map(|(_, name)| name.clone())
-            .unwrap_or_default();
-        app.out.write(name.as_ref());
-        // pad app.out to the length of the longest name
-        if name.len() < longest_name_len {
-            for _ in 0..longest_name_len - name.len() as usize {
-                app.out.push(b' ');
-            }
-        }
-        app.out.push(b' ');
+        */
 
         let localtime = unsafe {
             let mut localtime = core::mem::zeroed();
@@ -233,7 +264,17 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], app: &mut App) {
                 .style()
                 .unwrap_or_else(|| crate::directory::extension_style(e.name().as_bytes())),
         );
-        app.out.write(e.name()).style(Style::Reset).push(b'\n');
+        app.out.write(e.name()).style(Style::Reset);
+
+        if entry_type == libc::S_IFLNK {
+            let mut buf = [0u8; 1024];
+            let len = veneer::syscalls::readlinkat(dir.raw_fd(), e.name(), &mut buf).unwrap_or(0);
+            if len > 0 {
+                app.out.write(b" -> ").write(&buf[..len]);
+            }
+        }
+
+        app.out.push(b'\n');
     }
 }
 
@@ -427,11 +468,9 @@ impl BufferedStdout {
     }
 
     pub fn style(&mut self, style: Style) -> &mut Self {
-        if self.is_terminal {
-            if self.style != style {
-                self.write(style.to_bytes());
-                self.style = style;
-            }
+        if self.is_terminal && self.style != style {
+            self.write(style.to_bytes());
+            self.style = style;
         }
         self
     }

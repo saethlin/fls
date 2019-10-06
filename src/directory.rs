@@ -21,7 +21,7 @@ enum EntryType {
 }
 
 impl EntryType {
-    fn style(&self, app: &App) -> (Option<Style>, Option<u8>) {
+    fn style(self, app: &App) -> (Option<Style>, Option<u8>) {
         use crate::cli::Suffixes;
         use EntryType::*;
         use Style::*;
@@ -62,11 +62,12 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
                 .map(|_| Link)
                 .unwrap_or(BrokenLink),
             DType::UNKNOWN => if app.follow_symlinks == FollowSymlinks::Always {
-                syscalls::fstatat(dir.raw_fd(), self.name()).map(|s| app.convert_status(s))
+                syscalls::fstatat(dir.raw_fd(), self.name())
             } else {
-                syscalls::lstatat(dir.raw_fd(), self.name()).map(|s| app.convert_status(s))
+                syscalls::lstatat(dir.raw_fd(), self.name())
             }
             .map(|status| {
+                let status = app.convert_status(status);
                 let entry_type = status.mode & libc::S_IFMT;
                 if entry_type == libc::S_IFDIR {
                     Directory

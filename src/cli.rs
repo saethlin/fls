@@ -21,7 +21,7 @@ pub struct App {
     pub out: BufferedStdout,
 
     pub args: Vec<CStr<'static>>,
-    pub uid_usernames: Vec<(u32, SmallVec<[u8; 24]>)>,
+    pub id_usernames: Vec<(u32, SmallVec<[u8; 24]>)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -74,16 +74,6 @@ pub enum DisplayMode {
     Stream,
 }
 
-macro_rules! error {
-    ($($item:expr),+) => {
-        use crate::output::Writable;
-        let mut output = Vec::new();
-        output.extend(b"fls: ");
-        $(output.extend_from_slice($item.bytes_repr());)*
-        let _ = veneer::syscalls::write(2, output.as_slice());
-    };
-}
-
 impl App {
     pub fn from_arguments(raw_args: Vec<CStr<'static>>) -> Result<Self, crate::Error> {
         let mut args = Vec::with_capacity(raw_args.len());
@@ -132,7 +122,7 @@ impl App {
             list_directory_contents: true,
             out: BufferedStdout::terminal(),
             args,
-            uid_usernames: Vec::new(),
+            id_usernames: Vec::new(),
         };
 
         for switch in switches.iter().cloned() {
@@ -256,10 +246,12 @@ impl App {
     pub fn convert_status(&self, status: libc::stat64) -> crate::Status {
         use TimeField::*;
         crate::Status {
+            links: status.st_nlink,
             mode: status.st_mode,
             size: status.st_size,
             blocks: status.st_blocks,
             uid: status.st_uid,
+            gid: status.st_gid,
             time: match self.time_field {
                 Accessed => status.st_atime,
                 Created => status.st_ctime,
