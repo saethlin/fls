@@ -301,8 +301,9 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
             let len = veneer::syscalls::readlinkat(dir.raw_fd(), e.name(), &mut buf).unwrap_or(0);
             if len > 0 {
                 app.out
-                    .style(Style::White)
+                    .style(Style::Gray)
                     .write(b" -> ")
+                    .style(Style::White)
                     .write(&buf[..len]);
             }
         }
