@@ -268,7 +268,7 @@ impl Status {
         } else if entry_type == libc::S_IFIFO {
             Some(Style::Yellow)
         } else if entry_type == libc::S_IFLNK {
-            Some(Style::Cyan)
+            Some(Style::CyanBold)
         } else if self.mode & libc::S_IXUSR > 0 {
             Some(Style::GreenBold)
         } else {
