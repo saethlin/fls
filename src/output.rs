@@ -32,6 +32,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
     let mut longest_name_len = 0;
     let mut longest_group_len = 0;
     let mut largest_size = 0;
+    let mut largest_links = 0;
     let mut blocks = 0;
 
     for (_, stats) in entries {
@@ -48,6 +49,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         }
 
         largest_size = largest_size.max(stats.size as usize);
+        largest_links = largest_links.max(stats.links as usize);
         blocks += stats.blocks;
     }
 
@@ -58,6 +60,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         .push(b'\n');
 
     largest_size = buf.format(largest_size).len();
+    largest_links = buf.format(largest_links).len();
 
     let current_year = unsafe {
         let mut localtime = core::mem::zeroed();
@@ -132,14 +135,12 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
             app.out.style(Style::Gray).push(b'-');
         }
 
-        let mut buf = itoa::Buffer::new();
         app.out
-            .style(Style::White)
             .push(b' ')
-            .write(buf.format(stats.links))
-            .push(b' ');
+            .style(Style::White)
+            .align_right(stats.links as usize, largest_links);
 
-        app.out.style(Style::YellowBold);
+        app.out.push(b' ').style(Style::YellowBold);
         let name = app
             .id_usernames
             .iter()
@@ -168,15 +169,10 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
             }
         }
 
-        app.out.push(b' ').style(Style::GreenBold);
-        let mut buf = itoa::Buffer::new();
-        let size_str = buf.format(stats.size);
-        if size_str.len() < largest_size {
-            for _ in 0..largest_size - size_str.len() {
-                app.out.push(b' ');
-            }
-        }
-        app.out.write(size_str).push(b' ');
+        app.out
+            .push(b' ')
+            .style(Style::GreenBold)
+            .align_right(stats.size as usize, largest_size);
 
         /*
         use libm::F32Ext;
@@ -228,6 +224,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         };
 
         app.out
+            .push(b' ')
             .style(Style::Blue)
             .write(month_abbr(localtime.tm_mon as u32))
             .push(b' ');
@@ -472,6 +469,18 @@ impl BufferedStdout {
             self.write(style.to_bytes());
             self.style = style;
         }
+        self
+    }
+
+    pub fn align_right(&mut self, value: usize, width: usize) -> &mut Self {
+        let mut buf = itoa::Buffer::new();
+        let formatted = buf.format(value);
+        if formatted.len() < width {
+            for _ in 0..width - formatted.len() {
+                self.push(b' ');
+            }
+        }
+        self.write(formatted);
         self
     }
 }
