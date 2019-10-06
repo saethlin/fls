@@ -59,7 +59,6 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
 
         if !app.gid_names.iter().any(|(id, _)| *id == stats.gid) {
             let group = get_group(stats.gid);
-            app.out.write(group.as_ref()).push(b'\n');
             longest_group_len = longest_group_len.max(group.len());
             app.gid_names.push((stats.gid, group));
         }
@@ -74,7 +73,6 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         .write(b"total ")
         .write(buf.format(blocks))
         .push(b'\n');
-    app.out.write(buf.format(longest_group_len)).push(b'\n');
 
     largest_size = buf.format(largest_size).len();
     largest_links = buf.format(largest_links).len();
