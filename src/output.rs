@@ -10,21 +10,36 @@ use unicode_segmentation::UnicodeSegmentation;
 use veneer::syscalls;
 
 pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directory, app: &mut App) {
-    let get_name = |id: libc::id_t| unsafe {
+    let get_name = |id: libc::uid_t| unsafe {
+        let mut name: SmallVec<[u8; 24]> = SmallVec::new();
         let pw = libc::getpwuid(id);
         if !pw.is_null() {
             let name_ptr = (*pw).pw_name;
             let mut offset = 0;
-            let mut name: SmallVec<[u8; 24]> = SmallVec::new();
             while *name_ptr.offset(offset) != 0 {
                 name.push(*name_ptr.offset(offset) as u8);
                 offset += 1;
             }
             name
         } else {
-            let mut buf = itoa::Buffer::new();
-            let mut name: SmallVec<[u8; 24]> = SmallVec::new();
-            name.extend_from_slice(buf.format(id).as_bytes());
+            name.extend_from_slice(itoa::Buffer::new().format(id).as_bytes());
+            name
+        }
+    };
+
+    let get_group = |id: libc::gid_t| unsafe {
+        let mut name: SmallVec<[u8; 24]> = SmallVec::new();
+        let gr = libc::getgrgid(id);
+        if !gr.is_null() {
+            let name_ptr = (*gr).gr_name;
+            let mut offset = 0;
+            while *name_ptr.offset(offset) != 0 {
+                name.push(*name_ptr.offset(offset) as u8);
+                offset += 1;
+            }
+            name
+        } else {
+            name.extend_from_slice(itoa::Buffer::new().format(id).as_bytes());
             name
         }
     };
@@ -36,16 +51,17 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
     let mut blocks = 0;
 
     for (_, stats) in entries {
-        if !app.id_usernames.iter().any(|(id, _)| *id == stats.uid) {
+        if !app.uid_names.iter().any(|(id, _)| *id == stats.uid) {
             let name = get_name(stats.uid);
             longest_name_len = longest_name_len.max(name.len());
-            app.id_usernames.push((stats.uid, name));
+            app.uid_names.push((stats.uid, name));
         }
 
-        if !app.id_usernames.iter().any(|(id, _)| *id == stats.gid) {
-            let group = get_name(stats.uid);
-            longest_group_len = longest_name_len.max(group.len());
-            app.id_usernames.push((stats.gid, group));
+        if !app.gid_names.iter().any(|(id, _)| *id == stats.gid) {
+            let group = get_group(stats.gid);
+            app.out.write(group.as_ref()).push(b'\n');
+            longest_group_len = longest_group_len.max(group.len());
+            app.gid_names.push((stats.gid, group));
         }
 
         largest_size = largest_size.max(stats.size as usize);
@@ -58,6 +74,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         .write(b"total ")
         .write(buf.format(blocks))
         .push(b'\n');
+    app.out.write(buf.format(longest_group_len)).push(b'\n');
 
     largest_size = buf.format(largest_size).len();
     largest_links = buf.format(largest_links).len();
@@ -142,7 +159,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
 
         app.out.push(b' ').style(Style::YellowBold);
         let name = app
-            .id_usernames
+            .uid_names
             .iter()
             .find(|&(id, _)| *id == stats.uid)
             .map(|(_, name)| name.clone())
@@ -156,7 +173,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         }
         app.out.push(b' ');
         let group = app
-            .id_usernames
+            .gid_names
             .iter()
             .find(|&(id, _)| *id == stats.gid)
             .map(|(_, group)| group.clone())

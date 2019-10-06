@@ -21,7 +21,8 @@ pub struct App {
     pub out: BufferedStdout,
 
     pub args: Vec<CStr<'static>>,
-    pub id_usernames: Vec<(u32, SmallVec<[u8; 24]>)>,
+    pub uid_names: Vec<(u32, SmallVec<[u8; 24]>)>,
+    pub gid_names: Vec<(u32, SmallVec<[u8; 24]>)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -122,7 +123,8 @@ impl App {
             list_directory_contents: true,
             out: BufferedStdout::terminal(),
             args,
-            id_usernames: Vec::new(),
+            uid_names: Vec::new(),
+            gid_names: Vec::new(),
         };
 
         for switch in switches.iter().cloned() {
