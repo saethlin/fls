@@ -9,7 +9,27 @@ use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOT
 use unicode_segmentation::UnicodeSegmentation;
 use veneer::syscalls;
 
+macro_rules! print {
+    ($app:expr, $($item:expr),+) => {
+        {
+        $($item.write(&mut $app.out);)*
+    }};
+}
+
+macro_rules! error {
+    ($($item:expr),+) => {
+        {
+        use alloc::vec::Vec;
+        let mut err = Vec::new();
+        err.extend_from_slice(b"fls: ");
+        $(err.extend($item);)*
+        let _ = veneer::syscalls::write(2, &err[..]);
+    }};
+}
+
 pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directory, app: &mut App) {
+    use Style::*;
+
     let get_name = |id: libc::uid_t| unsafe {
         core::ptr::NonNull::new(libc::getpwuid(id)).map(|pw| {
             let mut name: SmallVec<[u8; 24]> = SmallVec::new();
@@ -74,12 +94,9 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         blocks += status.blocks;
     }
 
-    let mut buf = itoa::Buffer::new();
-    app.out
-        .write(b"total ")
-        .write(buf.format(blocks))
-        .push(b'\n');
+    print!(app, "total ", blocks, "\n");
 
+    let mut buf = itoa::Buffer::new();
     largest_size = buf.format(largest_size).len();
     largest_links = buf.format(largest_links).len();
 
@@ -95,106 +112,77 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         let status = &direntry.1;
         let mode = status.mode;
 
-        let entry_type = mode & libc::S_IFMT;
-        if entry_type == libc::S_IFDIR {
-            app.out.style(Style::BlueBold).push(b'd');
-        } else if entry_type == libc::S_IFLNK {
-            app.out.style(Style::Cyan).push(b'l');
-        } else {
-            app.out.style(Style::White).push(b'.');
-        }
+        let print_readable = |app: &mut App, mask| {
+            if mode & mask > 0 {
+                print!(app, GreenBold, "r");
+            } else {
+                print!(app, Gray, "-");
+            }
+        };
 
-        if mode & S_IRUSR > 0 {
-            app.out.style(Style::YellowBold).push(b'r');
-        } else {
-            app.out.style(Style::Gray).push(b'-');
-        }
+        let print_writable = |app: &mut App, mask| {
+            if mode & mask > 0 {
+                print!(app, YellowBold, "w");
+            } else {
+                print!(app, Gray, "-");
+            }
+        };
 
-        if mode & S_IWUSR > 0 {
-            app.out.style(Style::RedBold).push(b'w');
-        } else {
-            app.out.style(Style::Gray).push(b'-');
-        }
+        let print_executable = |app: &mut App, mask| {
+            print!(
+                app,
+                (mode & mask > 0).map((RedBold, "x")).unwrap_or((Gray, "-"))
+            )
+        };
 
-        if mode & S_IXUSR > 0 {
-            app.out.style(Style::GreenBold).push(b'x');
-        } else {
-            app.out.style(Style::Gray).push(b'-');
-        }
+        print!(
+            app,
+            match mode & libc::S_IFMT {
+                libc::S_IFDIR => (BlueBold, "d"),
+                libc::S_IFLNK => (Cyan, "l"),
+                _ => (White, "."),
+            }
+        );
 
-        if mode & S_IRGRP > 0 {
-            app.out.style(Style::Yellow).push(b'r');
-        } else {
-            app.out.style(Style::Gray).push(b'-');
-        }
+        print_readable(app, S_IRUSR);
+        print_writable(app, S_IWUSR);
+        print_executable(app, S_IXUSR);
 
-        if mode & S_IWGRP > 0 {
-            app.out.style(Style::Red).push(b'w');
-        } else {
-            app.out.style(Style::Gray).push(b'-');
-        }
+        print_readable(app, S_IRGRP);
+        print_writable(app, S_IWGRP);
+        print_executable(app, S_IXGRP);
 
-        if mode & S_IXGRP > 0 {
-            app.out.style(Style::Green).push(b'x');
-        } else {
-            app.out.style(Style::Gray).push(b'-');
-        }
-
-        if mode & S_IROTH > 0 {
-            app.out.style(Style::Yellow).push(b'r');
-        } else {
-            app.out.style(Style::Gray).push(b'-');
-        }
-
-        if mode & S_IWOTH > 0 {
-            app.out.style(Style::Red).push(b'w');
-        } else {
-            app.out.style(Style::Gray).push(b'-');
-        }
-
-        if mode & S_IXOTH > 0 {
-            app.out.style(Style::Green).push(b'x');
-        } else {
-            app.out.style(Style::Gray).push(b'-');
-        }
+        print_readable(app, S_IROTH);
+        print_writable(app, S_IWOTH);
+        print_executable(app, S_IXOTH);
 
         app.out
             .push(b' ')
             .style(Style::White)
             .align_right(status.links as usize, largest_links);
 
-        if app.print_owner {
-            app.out.push(b' ').style(Style::YellowBold);
-            let name = app
-                .uid_names
+        let get_or_default = |container: &[(libc::id_t, SmallVec<[u8; 24]>)], key| {
+            container
                 .iter()
-                .find(|&(id, _)| *id == status.uid)
-                .map(|(_, name)| name.clone())
-                .unwrap_or_default();
-            app.out.write(name.as_ref());
-            // apply padding
-            if name.len() < longest_name_len {
-                for _ in 0..longest_name_len - name.len() {
-                    app.out.push(b' ');
-                }
-            }
+                .find(|&it| it.0 == key)
+                .map(|v| v.1.clone())
+                .unwrap_or_default()
+        };
+
+        if app.print_owner {
+            let name = get_or_default(&app.uid_names, status.uid);
+            app.out
+                .push(b' ')
+                .style(YellowBold)
+                .align_left(&name, longest_name_len);
         }
 
         if app.print_group {
-            app.out.push(b' ').style(Style::YellowBold);
-            let group = app
-                .gid_names
-                .iter()
-                .find(|&(id, _)| *id == status.gid)
-                .map(|(_, group)| group.clone())
-                .unwrap_or_default();
-            app.out.write(group.as_ref());
-            // apply padding
-            if group.len() < longest_group_len {
-                for _ in 0..longest_group_len - group.len() {
-                    app.out.push(b' ');
-                }
-            }
+            let group = get_or_default(&app.gid_names, status.gid);
+            app.out
+                .push(b' ')
+                .style(Style::YellowBold)
+                .align_left(&group, longest_group_len);
         }
 
         app.out.push(b' ').style(Style::GreenBold).align_right(
@@ -212,56 +200,36 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
             localtime
         };
 
-        app.out
-            .push(b' ')
-            .style(Style::Blue)
-            .write(month_abbr(localtime.tm_mon))
-            .push(b' ');
+        print!(app, " ", Style::Blue, month_abbr(localtime.tm_mon), " ");
 
-        let mut buf = itoa::Buffer::new();
-        let day = buf.format(localtime.tm_mday);
-        if day.len() < 2 {
-            app.out.push(b' ');
-        }
-        app.out.write(day).push(b' ');
+        let day = localtime.tm_mday;
+        print!(app, (day < 10).map(" "), day, " ");
 
         if localtime.tm_year == current_year {
-            let hour = buf.format(localtime.tm_hour);
-            if hour.len() < 2 {
-                app.out.push(b' ');
-            }
-            app.out.write(hour);
-            app.out.push(b':');
+            let hour = localtime.tm_hour;
+            print!(app, (hour < 10).map(" "), hour, ":");
 
-            let minute = buf.format(localtime.tm_min);
-            if minute.len() < 2 {
-                app.out.push(b'0');
-            }
-            app.out.write(minute);
+            let minute = localtime.tm_min;
+            print!(app, (minute < 10).map("0"), minute);
         } else {
-            app.out.push(b' ');
-            app.out.write(buf.format(localtime.tm_year + 1900));
+            print!(app, " ", localtime.tm_year + 1900);
         }
 
         app.out.push(b' ');
 
         let (style, suffix) = direntry.style(dir, app);
-        app.out.style(style).write(e.name());
+        app.out.style(style).write(e.name().as_bytes());
         suffix.map(|s| app.out.style(Style::White).push(s));
 
-        if entry_type == libc::S_IFLNK {
+        if (mode & libc::S_IFMT) == libc::S_IFLNK {
             let mut buf = [0u8; 1024];
             let len = veneer::syscalls::readlinkat(dir.raw_fd(), e.name(), &mut buf).unwrap_or(0);
             if len > 0 {
-                app.out
-                    .style(Style::Gray)
-                    .write(b" -> ")
-                    .style(Style::White)
-                    .write(&buf[..len]);
+                print!(app, Style::Gray, " -> ", Style::White, &buf[..len]);
             }
         }
 
-        app.out.push(b'\n');
+        print!(app, Style::Reset, "\n");
     }
 }
 
@@ -326,7 +294,7 @@ pub fn write_grid<T: DirEntry>(
                 _ => continue,
             };
 
-            app.out.style(*style).write(e.name());
+            app.out.style(*style).write(e.name().as_bytes());
             suffix.map(|s| app.out.style(Style::White).push(s));
 
             for _ in 0..(width - name_len) {
@@ -340,13 +308,13 @@ pub fn write_grid<T: DirEntry>(
 pub fn write_stream<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &mut App) {
     for e in entries.iter().take(entries.len() - 1) {
         let (style, suffix) = e.style(dir, app);
-        app.out.style(style).write(e.name());
+        app.out.style(style).write(e.name().as_bytes());
         suffix.map(|s| app.out.style(Style::White).push(s));
 
         app.out.style(Style::White).write(b", ");
     }
     if let Some(e) = entries.last() {
-        app.out.write(e.name());
+        app.out.write(e.name().as_bytes());
     }
     app.out.push(b'\n');
 }
@@ -354,7 +322,7 @@ pub fn write_stream<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &m
 pub fn write_single_column<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &mut App) {
     for e in entries {
         let (style, suffix) = e.style(dir, app);
-        app.out.style(style).write(e.name());
+        print!(app, style, e.name().as_bytes());
         suffix.map(|s| app.out.style(Style::White).push(s));
         app.out.push(b'\n');
     }
@@ -367,12 +335,12 @@ fn len_utf8(bytes: &[u8]) -> usize {
 }
 
 pub trait Writable {
-    fn bytes_repr(&self) -> &[u8];
+    fn write(&self, out: &mut BufferedStdout);
 }
 
 impl Writable for &[u8] {
-    fn bytes_repr(&self) -> &[u8] {
-        *self
+    fn write(&self, out: &mut BufferedStdout) {
+        out.write(self);
     }
 }
 
@@ -380,8 +348,8 @@ macro_rules! array_impl {
     ($($N:expr)+) => {
         $(
             impl Writable for &[u8; $N] {
-                fn bytes_repr(&self) -> &[u8] {
-                    *self
+                fn write(&self, out: &mut BufferedStdout) {
+                    out.write(*self);
                 }
             }
         )+
@@ -396,14 +364,77 @@ array_impl! {
 }
 
 impl Writable for &str {
-    fn bytes_repr(&self) -> &[u8] {
-        self.as_bytes()
+    fn write(&self, out: &mut BufferedStdout) {
+        out.write(self.as_bytes());
     }
 }
 
 impl<'a> Writable for veneer::CStr<'a> {
-    fn bytes_repr(&self) -> &[u8] {
-        self.as_bytes()
+    fn write(&self, out: &mut BufferedStdout) {
+        out.write(self.as_bytes());
+    }
+}
+
+impl Writable for crate::Style {
+    fn write(&self, out: &mut BufferedStdout) {
+        out.style(*self);
+    }
+}
+
+impl Writable for u8 {
+    fn write(&self, out: &mut BufferedStdout) {
+        let mut buf = itoa::Buffer::new();
+        out.write(buf.format(*self).as_bytes());
+    }
+}
+
+impl Writable for i8 {
+    fn write(&self, out: &mut BufferedStdout) {
+        let mut buf = itoa::Buffer::new();
+        out.write(buf.format(*self).as_bytes());
+    }
+}
+
+impl Writable for i32 {
+    fn write(&self, out: &mut BufferedStdout) {
+        let mut buf = itoa::Buffer::new();
+        out.write(buf.format(*self).as_bytes());
+    }
+}
+
+impl Writable for u64 {
+    fn write(&self, out: &mut BufferedStdout) {
+        let mut buf = itoa::Buffer::new();
+        out.write(buf.format(*self).as_bytes());
+    }
+}
+
+impl Writable for i64 {
+    fn write(&self, out: &mut BufferedStdout) {
+        let mut buf = itoa::Buffer::new();
+        out.write(buf.format(*self).as_bytes());
+    }
+}
+
+impl<T> Writable for Option<T>
+where
+    T: Writable,
+{
+    fn write(&self, out: &mut BufferedStdout) {
+        if let Some(s) = self.as_ref() {
+            s.write(out)
+        }
+    }
+}
+
+impl<T, U> Writable for (T, U)
+where
+    T: Writable,
+    U: Writable,
+{
+    fn write(&self, out: &mut BufferedStdout) {
+        self.0.write(out);
+        self.1.write(out);
     }
 }
 
@@ -434,22 +465,22 @@ impl BufferedStdout {
         self.is_terminal
     }
 
-    pub fn write<T: Writable>(&mut self, item: T) -> &mut Self {
-        for b in item.bytes_repr() {
-            if self.buf.try_push(*b).is_err() {
-                write_to_stdout(&self.buf);
-                self.buf.clear();
-                self.buf.push(*b);
-            }
-        }
-        self
-    }
-
     pub fn push(&mut self, b: u8) -> &mut Self {
         if self.buf.try_push(b).is_err() {
             write_to_stdout(&self.buf);
             self.buf.clear();
             self.buf.push(b);
+        }
+        self
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) -> &mut Self {
+        for b in bytes {
+            if self.buf.try_push(*b).is_err() {
+                write_to_stdout(&self.buf);
+                self.buf.clear();
+                self.buf.push(*b);
+            }
         }
         self
     }
@@ -462,6 +493,16 @@ impl BufferedStdout {
         self
     }
 
+    pub fn align_left(&mut self, value: &[u8], width: usize) -> &mut Self {
+        self.write(value);
+        if value.len() < width {
+            for _ in 0..width - value.len() {
+                self.push(b' ');
+            }
+        }
+        self
+    }
+
     pub fn align_right(&mut self, value: usize, width: usize) -> &mut Self {
         let mut buf = itoa::Buffer::new();
         let formatted = buf.format(value);
@@ -470,7 +511,7 @@ impl BufferedStdout {
                 self.push(b' ');
             }
         }
-        self.write(formatted);
+        self.write(formatted.as_bytes());
         self
     }
 }
@@ -555,5 +596,19 @@ trait SliceExt {
 impl SliceExt for &[u8] {
     fn digit_at(&self, index: usize) -> bool {
         self.get(index).map(u8::is_ascii_digit).unwrap_or(false)
+    }
+}
+
+trait BoolExt {
+    fn map<T>(self, value: T) -> Option<T>;
+}
+
+impl BoolExt for bool {
+    fn map<T>(self, value: T) -> Option<T> {
+        if self {
+            Some(value)
+        } else {
+            None
+        }
     }
 }

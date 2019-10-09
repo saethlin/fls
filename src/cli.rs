@@ -97,7 +97,7 @@ impl App {
                 // Somebody passed (or tried to pass) a GNU appion. Ignore it.
                 if arg.get(0) == Some(b'-') && arg.get(1) == Some(b'-') {
                     args_valid = false;
-                    error!("unrecognized option \'", arg, "\'\n");
+                    error!(b"unrecognized option \'", arg.as_bytes(), b"\'\n");
                     continue;
                 }
                 if arg.get(0) == Some(b'-') {

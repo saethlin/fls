@@ -25,19 +25,8 @@ fn alloc_error(_: core::alloc::Layout) -> ! {
 #[global_allocator]
 static ALLOC: veneer::LibcAllocator = veneer::LibcAllocator;
 
+#[macro_use]
 mod output;
-
-macro_rules! error {
-    ($($item:expr),+) => {
-        {
-        use crate::output::Writable;
-        use alloc::vec::Vec;
-        let mut output = Vec::new();
-        output.extend(b"fls: ");
-        $(output.extend_from_slice($item.bytes_repr());)*
-        let _ = veneer::syscalls::write(2, output.as_slice());
-    }};
-}
 
 extern crate alloc;
 use alloc::vec::Vec;
@@ -58,7 +47,7 @@ use veneer::CStr;
 use veneer::Error;
 
 #[no_mangle]
-pub unsafe extern "C" fn main(argc: isize, argv: *const *const libc::c_char) -> i32 {
+unsafe extern "C" fn main(argc: isize, argv: *const *const libc::c_char) -> i32 {
     let args = (0..argc).map(|i| CStr::from_ptr(*argv.offset(i))).collect();
 
     match run(args) {
@@ -86,13 +75,15 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                 Err(Error(20)) => files.push(crate::directory::File { path: arg }),
                 Err(e) => {
                     let mut buf = itoa::Buffer::new();
-                    app.out
-                        .write(arg)
-                        .write(b": OS error ")
-                        .write(buf.format(e.0).as_bytes())
-                        .push(b' ')
-                        .write(e.msg().as_bytes())
-                        .push(b'\n');
+                    error!(
+                        b"OS error ",
+                        buf.format(e.0).as_bytes(),
+                        b": ",
+                        e.msg().as_bytes(),
+                        b" \"",
+                        arg.as_bytes(),
+                        b"\"\n"
+                    );
                 }
             }
         }
@@ -194,7 +185,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
         }
 
         if multiple_args {
-            app.out.write(*name).write(b":\n");
+            print!(app, name, ":\n");
         }
 
         if !need_details {
