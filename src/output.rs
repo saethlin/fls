@@ -129,10 +129,11 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         };
 
         let print_executable = |app: &mut App, mask| {
-            print!(
-                app,
-                (mode & mask > 0).map((RedBold, "x")).unwrap_or((Gray, "-"))
-            )
+            if mode & mask > 0 {
+                print!(app, RedBold, "x");
+            } else {
+                print!(app, Gray, "-");
+            }
         };
 
         print!(
@@ -218,8 +219,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         app.out.push(b' ');
 
         let (style, suffix) = direntry.style(dir, app);
-        app.out.style(style).write(e.name().as_bytes());
-        suffix.map(|s| app.out.style(Style::White).push(s));
+        print!(app, style, e.name(), suffix.map(|s| (Style::White, s)));
 
         if (mode & libc::S_IFMT) == libc::S_IFLNK {
             let mut buf = [0u8; 1024];
@@ -294,8 +294,7 @@ pub fn write_grid<T: DirEntry>(
                 _ => continue,
             };
 
-            app.out.style(*style).write(e.name().as_bytes());
-            suffix.map(|s| app.out.style(Style::White).push(s));
+            print!(app, style, e.name(), suffix.map(|s| (Style::White, s)));
 
             for _ in 0..(width - name_len) {
                 app.out.push(b' ');
@@ -308,10 +307,14 @@ pub fn write_grid<T: DirEntry>(
 pub fn write_stream<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &mut App) {
     for e in entries.iter().take(entries.len() - 1) {
         let (style, suffix) = e.style(dir, app);
-        app.out.style(style).write(e.name().as_bytes());
-        suffix.map(|s| app.out.style(Style::White).push(s));
-
-        app.out.style(Style::White).write(b", ");
+        print!(
+            app,
+            style,
+            e.name(),
+            suffix.map(|s| (Style::White, s)),
+            Style::White,
+            ", "
+        );
     }
     if let Some(e) = entries.last() {
         app.out.write(e.name().as_bytes());
@@ -322,9 +325,14 @@ pub fn write_stream<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &m
 pub fn write_single_column<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &mut App) {
     for e in entries {
         let (style, suffix) = e.style(dir, app);
-        print!(app, style, e.name().as_bytes());
-        suffix.map(|s| app.out.style(Style::White).push(s));
-        app.out.push(b'\n');
+        print!(
+            app,
+            style,
+            e.name(),
+            suffix.map(|s| (Style::White, s)),
+            Style::Reset,
+            "\n"
+        );
     }
 }
 
@@ -388,21 +396,7 @@ impl Writable for u8 {
     }
 }
 
-impl Writable for i8 {
-    fn write(&self, out: &mut BufferedStdout) {
-        let mut buf = itoa::Buffer::new();
-        out.write(buf.format(*self).as_bytes());
-    }
-}
-
 impl Writable for i32 {
-    fn write(&self, out: &mut BufferedStdout) {
-        let mut buf = itoa::Buffer::new();
-        out.write(buf.format(*self).as_bytes());
-    }
-}
-
-impl Writable for u64 {
     fn write(&self, out: &mut BufferedStdout) {
         let mut buf = itoa::Buffer::new();
         out.write(buf.format(*self).as_bytes());
@@ -416,17 +410,6 @@ impl Writable for i64 {
     }
 }
 
-impl<T> Writable for Option<T>
-where
-    T: Writable,
-{
-    fn write(&self, out: &mut BufferedStdout) {
-        if let Some(s) = self.as_ref() {
-            s.write(out)
-        }
-    }
-}
-
 impl<T, U> Writable for (T, U)
 where
     T: Writable,
@@ -435,6 +418,17 @@ where
     fn write(&self, out: &mut BufferedStdout) {
         self.0.write(out);
         self.1.write(out);
+    }
+}
+
+impl<T> Writable for Option<T>
+where
+    T: Writable,
+{
+    fn write(&self, out: &mut BufferedStdout) {
+        if let Some(s) = self.as_ref() {
+            s.write(out)
+        }
     }
 }
 
