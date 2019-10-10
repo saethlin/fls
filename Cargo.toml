@@ -19,7 +19,6 @@ opt-level = 1
 panic = "abort"
 
 [profile.release]
-opt-level = "s"
 debug = 1
 lto = "fat"
 panic = "abort"

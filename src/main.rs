@@ -225,7 +225,7 @@ fn list_dir_contents(
 
         if app.recurse {
             app.out.push(b'\n');
-            for e in entries {
+            for e in entries.into_iter().filter(|e| e.is_dir() != Some(false)) {
                 let mut path = name.as_bytes().to_vec();
                 if path.last() != Some(&b'/') {
                     path.push(b'/');
@@ -239,8 +239,7 @@ fn list_dir_contents(
             }
         }
     } else {
-        let mut entries_and_stats = Vec::new();
-        entries_and_stats.reserve(entries.len());
+        let mut entries_and_stats = Vec::with_capacity(entries.len());
         for e in entries.iter().cloned() {
             let status = if app.follow_symlinks == cli::FollowSymlinks::Always {
                 syscalls::fstatat(dir.raw_fd(), e.name())

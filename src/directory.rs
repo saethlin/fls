@@ -6,10 +6,13 @@ use veneer::{syscalls, CStr};
 pub trait DirEntry {
     fn name(&self) -> CStr;
     fn style(&self, dir: &veneer::Directory, app: &App) -> (Style, Option<u8>);
+    fn is_dir(&self) -> Option<bool> {
+        None
+    }
 }
 
 #[derive(Clone, Copy)]
-enum EntryType {
+pub enum EntryType {
     Directory,
     Executable,
     Regular,
@@ -46,6 +49,14 @@ impl EntryType {
 impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
     fn name(&self) -> CStr {
         self.name()
+    }
+
+    fn is_dir(&self) -> Option<bool> {
+        match self.d_type() {
+            DType::DIR => Some(true),
+            DType::LNK => None, // Don't know, because we might have to follow the symlink
+            _ => Some(false),
+        }
     }
 
     fn style(&self, dir: &veneer::Directory, app: &App) -> (Style, Option<u8>) {
