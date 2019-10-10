@@ -7,7 +7,7 @@ Attempting to write a POSIX-compliant `ls` in Rust that's faster and prettier th
 - [x] -F append an indicator to entries
 - [x] -H follow symlinks when provided on the command line
 - [x] -L always follow symlinks
-- [ ] -R recurse into subdirectories
+- [x] -R recurse into subdirectories
 - [x] -S sort by size
 - [x] -a do not ignore entries whose names begin with `.`
 - [x] -c sort by ctime

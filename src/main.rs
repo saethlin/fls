@@ -159,98 +159,147 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
     }
 
     for (n, (name, dir)) in dirs.iter().enumerate() {
-        let contents = dir.read()?;
-        let hint = contents.iter().size_hint();
-        let mut entries: SmallVec<[veneer::directory::DirEntry; 32]> = SmallVec::new();
-        entries.reserve(hint.1.unwrap_or(hint.0));
+        list_dir_contents(multiple_args, need_details, *name, dir, &mut app)?;
+        // When recursing the recursion handles newlines, if not we need to check if we're on the
+        // last and print a newline
+        if !app.recurse && (n != dirs.len() - 1) {
+            app.out.push(b'\n');
+        }
+    }
 
-        match app.show_all {
-            ShowAll::No => {
-                for e in contents.iter().filter(|e| e.name().get(0) != Some(b'.')) {
+    Ok(())
+}
+
+fn list_dir_contents(
+    multiple_args: bool,
+    need_details: bool,
+    name: CStr,
+    dir: &veneer::Directory,
+    app: &mut cli::App,
+) -> Result<(), veneer::Error> {
+    let contents = dir.read()?;
+    let hint = contents.iter().size_hint();
+    let mut entries: SmallVec<[veneer::directory::DirEntry; 32]> = SmallVec::new();
+    entries.reserve(hint.1.unwrap_or(hint.0));
+
+    match app.show_all {
+        ShowAll::No => {
+            for e in contents.iter().filter(|e| e.name().get(0) != Some(b'.')) {
+                entries.push(e)
+            }
+        }
+        ShowAll::Almost => {
+            for e in contents.iter() {
+                if e.name().as_bytes() != b".." && e.name().as_bytes() != b"." {
                     entries.push(e)
                 }
             }
-            ShowAll::Almost => {
-                for e in contents.iter() {
-                    if e.name().as_bytes() != b".." && e.name().as_bytes() != b"." {
-                        entries.push(e)
-                    }
-                }
-            }
-            ShowAll::Yes => {
-                for e in contents.iter() {
-                    entries.push(e);
-                }
+        }
+        ShowAll::Yes => {
+            for e in contents.iter() {
+                entries.push(e);
             }
         }
+    }
 
-        if multiple_args {
-            print!(app, name, ":\n");
+    if multiple_args || app.recurse {
+        print!(app, name, ":\n");
+    }
+
+    if !need_details {
+        if let Some(SortField::Name) = app.sort_field {
+            entries.sort_unstable_by(|a, b| {
+                let mut ordering = vercmp(a.name(), b.name());
+                if app.reverse_sorting {
+                    ordering = ordering.reverse();
+                }
+                ordering
+            });
+        }
+        match app.display_mode {
+            DisplayMode::Grid(width) => write_grid(&entries, &dir, app, width),
+            DisplayMode::SingleColumn => write_single_column(&entries, &dir, app),
+            DisplayMode::Stream => write_stream(&entries, &dir, app),
+            DisplayMode::Long => unreachable!(),
         }
 
-        if !need_details {
-            if let Some(SortField::Name) = app.sort_field {
-                entries.sort_unstable_by(|a, b| {
-                    let mut ordering = vercmp(a.name(), b.name());
-                    if app.reverse_sorting {
-                        ordering = ordering.reverse();
-                    }
-                    ordering
-                });
-            }
-            match app.display_mode {
-                DisplayMode::Grid(width) => write_grid(&entries, &dir, &mut app, width),
-                DisplayMode::SingleColumn => write_single_column(&entries, &dir, &mut app),
-                DisplayMode::Stream => write_stream(&entries, &dir, &mut app),
-                DisplayMode::Long => unreachable!(),
-            }
-        } else {
-            let mut entries_and_stats = Vec::new();
-            entries_and_stats.reserve(entries.len());
-            for e in entries.iter().cloned() {
-                let status = if app.follow_symlinks == cli::FollowSymlinks::Always {
-                    syscalls::fstatat(dir.raw_fd(), e.name())
-                } else {
-                    syscalls::lstatat(dir.raw_fd(), e.name())
-                }
-                .map(|status| app.convert_status(status))?;
-                entries_and_stats.push((e, status));
-            }
-
-            if let Some(field) = app.sort_field {
-                entries_and_stats.sort_unstable_by(|a, b| {
-                    let mut ordering = match field {
-                        SortField::Time => {
-                            b.1.time
-                                .cmp(&a.1.time)
-                                .then_with(|| vercmp(a.0.name(), b.0.name()))
-                        }
-                        SortField::Size => {
-                            b.1.size
-                                .cmp(&a.1.size)
-                                .then_with(|| vercmp(a.0.name(), b.0.name()))
-                        }
-                        SortField::Name => vercmp(a.0.name(), b.0.name()),
-                    };
-                    if app.reverse_sorting {
-                        ordering = ordering.reverse();
-                    }
-                    ordering
-                });
-            }
-
-            match app.display_mode {
-                DisplayMode::Grid(width) => write_grid(&entries_and_stats, &dir, &mut app, width),
-                DisplayMode::Long => write_details(&entries_and_stats, &dir, &mut app),
-                DisplayMode::SingleColumn => {
-                    write_single_column(&entries_and_stats, &dir, &mut app)
-                }
-                DisplayMode::Stream => write_stream(&entries_and_stats, &dir, &mut app),
-            }
-        }
-
-        if multiple_args && n != dirs.len() - 1 {
+        if app.recurse {
             app.out.push(b'\n');
+            for e in entries {
+                let mut path = name.as_bytes().to_vec();
+                if path.last() != Some(&b'/') {
+                    path.push(b'/');
+                }
+                path.extend_from_slice(e.name().as_bytes());
+                path.push(0);
+                let path = CStr::from_bytes(&path);
+                if let Ok(dir) = veneer::Directory::open(path) {
+                    list_dir_contents(multiple_args, need_details, path, &dir, app)?;
+                }
+            }
+        }
+    } else {
+        let mut entries_and_stats = Vec::new();
+        entries_and_stats.reserve(entries.len());
+        for e in entries.iter().cloned() {
+            let status = if app.follow_symlinks == cli::FollowSymlinks::Always {
+                syscalls::fstatat(dir.raw_fd(), e.name())
+            } else {
+                syscalls::lstatat(dir.raw_fd(), e.name())
+            }
+            .map(|status| app.convert_status(status))?;
+            entries_and_stats.push((e, status));
+        }
+
+        if let Some(field) = app.sort_field {
+            entries_and_stats.sort_unstable_by(|a, b| {
+                let mut ordering = match field {
+                    SortField::Time => {
+                        b.1.time
+                            .cmp(&a.1.time)
+                            .then_with(|| vercmp(a.0.name(), b.0.name()))
+                    }
+                    SortField::Size => {
+                        b.1.size
+                            .cmp(&a.1.size)
+                            .then_with(|| vercmp(a.0.name(), b.0.name()))
+                    }
+                    SortField::Name => vercmp(a.0.name(), b.0.name()),
+                };
+                if app.reverse_sorting {
+                    ordering = ordering.reverse();
+                }
+                ordering
+            });
+        }
+
+        match app.display_mode {
+            DisplayMode::Grid(width) => write_grid(&entries_and_stats, &dir, app, width),
+            DisplayMode::Long => write_details(&entries_and_stats, &dir, app),
+            DisplayMode::SingleColumn => write_single_column(&entries_and_stats, &dir, app),
+            DisplayMode::Stream => write_stream(&entries_and_stats, &dir, app),
+        }
+
+        if app.recurse {
+            app.out.push(b'\n');
+            for e in entries_and_stats.into_iter().filter_map(|(e, status)| {
+                if status.mode & libc::S_IFMT == libc::S_IFDIR {
+                    Some(e)
+                } else {
+                    None
+                }
+            }) {
+                let mut path = name.as_bytes().to_vec();
+                if path.last() != Some(&b'/') {
+                    path.push(b'/');
+                }
+                path.extend_from_slice(e.name().as_bytes());
+                path.push(0);
+                let path = CStr::from_bytes(&path);
+                if let Ok(dir) = veneer::Directory::open(path) {
+                    list_dir_contents(multiple_args, need_details, path, &dir, app)?;
+                }
+            }
         }
     }
 
