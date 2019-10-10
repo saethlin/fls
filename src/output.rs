@@ -337,9 +337,13 @@ pub fn write_single_column<T: DirEntry>(entries: &[T], dir: &veneer::Directory, 
 }
 
 fn len_utf8(bytes: &[u8]) -> usize {
-    core::str::from_utf8(bytes)
-        .map(|s| s.graphemes(false).count())
-        .unwrap_or_else(|_| bytes.len())
+    if bytes.iter().all(u8::is_ascii) {
+        bytes.len()
+    } else {
+        core::str::from_utf8(bytes)
+            .map(|s| s.graphemes(false).count())
+            .unwrap_or_else(|_| bytes.len())
+    }
 }
 
 pub trait Writable {
