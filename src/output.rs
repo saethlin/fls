@@ -391,8 +391,7 @@ impl Writable for crate::Style {
 
 impl Writable for u8 {
     fn write(&self, out: &mut BufferedStdout) {
-        let mut buf = itoa::Buffer::new();
-        out.write(buf.format(*self).as_bytes());
+        out.push(*self);
     }
 }
 
