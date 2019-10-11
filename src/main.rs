@@ -61,7 +61,8 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
 
     let need_details = app.display_mode == DisplayMode::Long
         || app.sort_field == Some(SortField::Time)
-        || app.sort_field == Some(SortField::Size);
+        || app.sort_field == Some(SortField::Size)
+        || app.display_size_in_blocks;
 
     let multiple_args = app.args.len() > 1;
 
@@ -103,7 +104,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                 ordering
             });
 
-            let dir = veneer::Directory::open(CStr::from_bytes(b".\0"))?;
+            let dir = veneer::Directory::open(CStr::from_bytes(b".\0")).unwrap();
             match app.display_mode {
                 DisplayMode::Grid(width) => write_grid(&files, &dir, &mut app, width),
                 DisplayMode::SingleColumn => write_single_column(&files, &dir, &mut app),
@@ -112,15 +113,26 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
             }
         } else {
             let mut files_and_stats = Vec::with_capacity(files.len());
-            let dir = veneer::Directory::open(CStr::from_bytes(b".\0"))?;
+            let dir = veneer::Directory::open(CStr::from_bytes(b".\0")).unwrap();
             for e in files.iter().cloned() {
                 let status = if app.follow_symlinks == cli::FollowSymlinks::Always {
                     syscalls::fstatat(dir.raw_fd(), e.name())
                 } else {
                     syscalls::lstatat(dir.raw_fd(), e.name())
                 }
-                .map(|status| app.convert_status(status))?;
-                files_and_stats.push((e, status));
+                .map(|status| app.convert_status(status));
+                match status {
+                    Ok(s) => files_and_stats.push((e, s)),
+                    Err(err) => {
+                        error!(
+                            b"Unable to access '",
+                            e.name().as_bytes(),
+                            b"': ",
+                            err.msg().as_bytes(),
+                            b"\n"
+                        );
+                    }
+                }
             }
 
             if let Some(field) = app.sort_field {
@@ -159,7 +171,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
     }
 
     for (n, (name, dir)) in dirs.iter().enumerate() {
-        list_dir_contents(multiple_args, need_details, *name, dir, &mut app)?;
+        list_dir_contents(multiple_args, need_details, *name, dir, &mut app);
         // When recursing the recursion handles newlines, if not we need to check if we're on the
         // last and print a newline
         if !app.recurse && (n != dirs.len() - 1) {
@@ -176,8 +188,20 @@ fn list_dir_contents(
     name: CStr,
     dir: &veneer::Directory,
     app: &mut cli::App,
-) -> Result<(), veneer::Error> {
-    let contents = dir.read()?;
+) {
+    let contents = match dir.read() {
+        Ok(c) => c,
+        Err(err) => {
+            error!(
+                b"Unable to access '",
+                name.as_bytes(),
+                b"': ",
+                err.msg().as_bytes(),
+                b"\n"
+            );
+            return;
+        }
+    };
     let hint = contents.iter().size_hint();
     let mut entries: SmallVec<[veneer::directory::DirEntry; 32]> = SmallVec::new();
     entries.reserve(hint.1.unwrap_or(hint.0));
@@ -234,7 +258,7 @@ fn list_dir_contents(
                 path.push(0);
                 let path = CStr::from_bytes(&path);
                 if let Ok(dir) = veneer::Directory::open(path) {
-                    list_dir_contents(multiple_args, need_details, path, &dir, app)?;
+                    list_dir_contents(multiple_args, need_details, path, &dir, app);
                 }
             }
         }
@@ -246,8 +270,19 @@ fn list_dir_contents(
             } else {
                 syscalls::lstatat(dir.raw_fd(), e.name())
             }
-            .map(|status| app.convert_status(status))?;
-            entries_and_stats.push((e, status));
+            .map(|status| app.convert_status(status));
+            match status {
+                Ok(s) => entries_and_stats.push((e, s)),
+                Err(err) => {
+                    error!(
+                        b"Unable to access '",
+                        e.name().as_bytes(),
+                        b"': ",
+                        err.msg().as_bytes(),
+                        b"\n"
+                    );
+                }
+            }
         }
 
         if let Some(field) = app.sort_field {
@@ -296,13 +331,11 @@ fn list_dir_contents(
                 path.push(0);
                 let path = CStr::from_bytes(&path);
                 if let Ok(dir) = veneer::Directory::open(path) {
-                    list_dir_contents(multiple_args, need_details, path, &dir, app)?;
+                    list_dir_contents(multiple_args, need_details, path, &dir, app);
                 }
             }
         }
     }
-
-    Ok(())
 }
 
 pub struct Status {
@@ -313,4 +346,5 @@ pub struct Status {
     pub uid: libc::uid_t,
     pub gid: libc::gid_t,
     pub time: libc::time_t,
+    pub inode: libc::ino_t,
 }

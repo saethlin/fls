@@ -14,7 +14,7 @@ Attempting to write a POSIX-compliant `ls` in Rust that's faster and prettier th
 - [x] -d list directories themselves, not their contents
 - [x] -f do not sort
 - [x] -g long format but without owner
-- [ ] -i print each entry's inode
+- [x] -i print each entry's inode
 - [ ] -k pretend block size is 1024 bytes
 - [x] -l long format
 - [x] -m single row, separated by `, `
@@ -23,7 +23,7 @@ Attempting to write a POSIX-compliant `ls` in Rust that's faster and prettier th
 - [x] -p append an indicator to directories
 - [ ] -q replace non-printable characters with `?`
 - [x] -r reverse sorting order
-- [ ] -s print size of each file in blocks
+- [x] -s print size of each file in blocks
 - [x] -t sort by modification time
 - [x] -u sort by access time
 - [ ] -x sort entries across rows

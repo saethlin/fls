@@ -9,6 +9,8 @@ pub trait DirEntry {
     fn is_dir(&self) -> Option<bool> {
         None
     }
+    fn inode(&self) -> u64;
+    fn blocks(&self) -> u64;
 }
 
 #[derive(Clone, Copy)]
@@ -57,6 +59,14 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
             DType::LNK => None, // Don't know, because we might have to follow the symlink
             _ => Some(false),
         }
+    }
+
+    fn inode(&self) -> u64 {
+        self.inode()
+    }
+
+    fn blocks(&self) -> u64 {
+        0
     }
 
     fn style(&self, dir: &veneer::Directory, app: &App) -> (Style, Option<u8>) {
@@ -114,6 +124,14 @@ impl<'a> DirEntry for File<'a> {
         self.path
     }
 
+    fn inode(&self) -> u64 {
+        0
+    }
+
+    fn blocks(&self) -> u64 {
+        0
+    }
+
     fn style(&self, dir: &veneer::Directory, app: &App) -> (Style, Option<u8>) {
         use EntryType::*;
         let entry_type = if app.follow_symlinks == FollowSymlinks::Always {
@@ -167,6 +185,14 @@ where
 {
     fn name(&self) -> CStr {
         self.0.name()
+    }
+
+    fn inode(&self) -> u64 {
+        self.1.inode
+    }
+
+    fn blocks(&self) -> u64 {
+        self.1.blocks as u64
     }
 
     fn style(&self, _fd: &veneer::Directory, app: &App) -> (Style, Option<u8>) {

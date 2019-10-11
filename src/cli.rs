@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 use veneer::CStr;
 
 pub struct App {
-    pub inode: bool,
+    pub print_inode: bool,
     pub block_size_is_kilobytes: bool,
     pub replace_unprintable_bytes: bool,
     pub reverse_sorting: bool,
@@ -110,7 +110,7 @@ impl App {
         }
 
         let mut app = App {
-            inode: false,
+            print_inode: false,
             block_size_is_kilobytes: false,
             replace_unprintable_bytes: false,
             reverse_sorting: false,
@@ -183,7 +183,7 @@ impl App {
                     app.print_owner = false;
                 }
                 b'i' => {
-                    app.inode = true;
+                    app.print_inode = true;
                 }
                 b'k' => {
                     app.block_size_is_kilobytes = true;
@@ -266,6 +266,7 @@ impl App {
             blocks: status.st_blocks,
             uid: status.st_uid,
             gid: status.st_gid,
+            inode: status.st_ino,
             time: match self.time_field {
                 Accessed => status.st_atime,
                 Created => status.st_ctime,

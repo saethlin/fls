@@ -61,6 +61,8 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
     let mut largest_size = 0;
     let mut largest_links = 0;
     let mut blocks = 0;
+    let mut inode_len = 0;
+    let mut blocks_len = 0;
 
     for (_, status) in entries {
         if app.print_owner && !app.uid_names.iter().any(|(id, _)| *id == status.uid) {
@@ -85,12 +87,10 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
             app.gid_names.push((status.gid, group));
         }
 
-        largest_size = largest_size.max(if app.display_size_in_blocks {
-            status.blocks
-        } else {
-            status.size
-        } as usize);
+        largest_size = largest_size.max(status.size as usize);
         largest_links = largest_links.max(status.links as usize);
+        inode_len = inode_len.max(status.inode as usize);
+        blocks_len = blocks_len.max(status.blocks as usize);
         blocks += status.blocks;
     }
 
@@ -99,6 +99,8 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
     let mut buf = itoa::Buffer::new();
     largest_size = buf.format(largest_size).len();
     largest_links = buf.format(largest_links).len();
+    inode_len = buf.format(inode_len).len();
+    blocks_len = buf.format(blocks_len).len();
 
     let current_year = unsafe {
         let mut localtime = core::mem::zeroed();
@@ -111,6 +113,20 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         let e = &direntry.0;
         let status = &direntry.1;
         let mode = status.mode;
+
+        if app.print_inode {
+            app.out
+                .style(Magenta)
+                .align_right(status.inode as usize, inode_len)
+                .push(b' ');
+        }
+
+        if app.display_size_in_blocks {
+            app.out
+                .style(White)
+                .align_right(status.blocks as usize, blocks_len)
+                .push(b' ');
+        }
 
         let print_readable = |app: &mut App, mask| {
             if mode & mask > 0 {
@@ -186,14 +202,10 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
                 .align_left(&group, longest_group_len);
         }
 
-        app.out.push(b' ').style(Style::GreenBold).align_right(
-            if app.display_size_in_blocks {
-                status.blocks
-            } else {
-                status.size
-            } as usize,
-            largest_size,
-        );
+        app.out
+            .push(b' ')
+            .style(Style::GreenBold)
+            .align_right(status.size as usize, largest_size);
 
         let localtime = unsafe {
             let mut localtime = core::mem::zeroed();
@@ -233,24 +245,56 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
     }
 }
 
+fn print_total_blocks<T: DirEntry>(entries: &[T], app: &mut App) {
+    if app.display_size_in_blocks {
+        print!(
+            app,
+            "total ",
+            entries.iter().map(DirEntry::blocks).sum::<u64>(),
+            "\n"
+        );
+    }
+}
+
 pub fn write_grid<T: DirEntry>(
     entries: &[T],
     dir: &veneer::Directory,
     app: &mut App,
     terminal_width: usize,
 ) {
+    print_total_blocks(entries, app);
+
     if entries.is_empty() {
         return;
     }
 
+    let inode_len = if app.print_inode {
+        let inode = entries.iter().map(DirEntry::inode).max().unwrap_or(0);
+        itoa::Buffer::new().format(inode).len()
+    } else {
+        0
+    };
+
+    let blocks_len = if app.display_size_in_blocks {
+        let blocks = entries.iter().map(DirEntry::blocks).max().unwrap_or(0);
+        itoa::Buffer::new().format(blocks).len()
+    } else {
+        0
+    };
+
     let mut rows = entries.len();
     let mut lengths: Vec<usize> = Vec::with_capacity(entries.len());
     let mut styles = Vec::with_capacity(entries.len());
-    let mut min_len: usize =
-        len_utf8(entries[0].name().as_bytes()) + entries[0].style(dir, app).1.is_some() as usize;
+    let mut min_len: usize = len_utf8(entries[0].name().as_bytes())
+        + entries[0].style(dir, app).1.is_some() as usize
+        + inode_len
+        + blocks_len
+        + 2;
+
     for e in entries {
         let style = e.style(dir, app);
-        let len = len_utf8(e.name().as_bytes()) + style.1.is_some() as usize;
+        let len =
+            len_utf8(e.name().as_bytes()) + style.1.is_some() as usize + inode_len + blocks_len + 2;
         lengths.push(len);
         styles.push(style);
         min_len = min_len.min(len);
@@ -294,6 +338,20 @@ pub fn write_grid<T: DirEntry>(
                 _ => continue,
             };
 
+            if app.print_inode {
+                app.out
+                    .style(Style::Magenta)
+                    .align_right(e.inode() as usize, inode_len)
+                    .push(b' ');
+            }
+
+            if app.display_size_in_blocks {
+                app.out
+                    .style(Style::White)
+                    .align_right(e.blocks() as usize, blocks_len)
+                    .push(b' ');
+            }
+
             print!(app, style, e.name(), suffix.map(|s| (Style::White, s)));
 
             for _ in 0..(width - name_len) {
@@ -305,7 +363,17 @@ pub fn write_grid<T: DirEntry>(
 }
 
 pub fn write_stream<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &mut App) {
+    print_total_blocks(entries, app);
+
     for e in entries.iter().take(entries.len() - 1) {
+        if app.print_inode {
+            print!(app, Style::Magenta, e.inode(), " ");
+        }
+
+        if app.display_size_in_blocks {
+            print!(app, Style::White, e.blocks(), " ");
+        }
+
         let (style, suffix) = e.style(dir, app);
         print!(
             app,
@@ -323,7 +391,36 @@ pub fn write_stream<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &m
 }
 
 pub fn write_single_column<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &mut App) {
+    print_total_blocks(entries, app);
+    let inode_len = if app.print_inode {
+        let inode = entries.iter().map(DirEntry::inode).max().unwrap_or(0);
+        itoa::Buffer::new().format(inode).len()
+    } else {
+        0
+    };
+
+    let blocks_len = if app.display_size_in_blocks {
+        let blocks = entries.iter().map(DirEntry::blocks).max().unwrap_or(0);
+        itoa::Buffer::new().format(blocks).len()
+    } else {
+        0
+    };
+
     for e in entries {
+        if app.print_inode {
+            app.out
+                .style(Style::Magenta)
+                .align_right(e.inode() as usize, inode_len)
+                .push(b' ');
+        }
+
+        if app.display_size_in_blocks {
+            app.out
+                .style(Style::White)
+                .align_right(e.blocks() as usize, blocks_len)
+                .push(b' ');
+        }
+
         let (style, suffix) = e.style(dir, app);
         print!(
             app,
@@ -407,6 +504,13 @@ impl Writable for i32 {
 }
 
 impl Writable for i64 {
+    fn write(&self, out: &mut BufferedStdout) {
+        let mut buf = itoa::Buffer::new();
+        out.write(buf.format(*self).as_bytes());
+    }
+}
+
+impl Writable for u64 {
     fn write(&self, out: &mut BufferedStdout) {
         let mut buf = itoa::Buffer::new();
         out.write(buf.format(*self).as_bytes());
