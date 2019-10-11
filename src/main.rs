@@ -82,8 +82,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                         b": ",
                         e.msg().as_bytes(),
                         b" \"",
-                        arg.as_bytes(),
-                        b"\"\n"
+                        arg.as_bytes()
                     );
                 }
             }
@@ -128,8 +127,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                             b"Unable to access '",
                             e.name().as_bytes(),
                             b"': ",
-                            err.msg().as_bytes(),
-                            b"\n"
+                            err.msg().as_bytes()
                         );
                     }
                 }
@@ -196,8 +194,7 @@ fn list_dir_contents(
                 b"Unable to access '",
                 name.as_bytes(),
                 b"': ",
-                err.msg().as_bytes(),
-                b"\n"
+                err.msg().as_bytes()
             );
             return;
         }

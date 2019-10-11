@@ -23,6 +23,9 @@ macro_rules! error {
         let mut err = Vec::new();
         err.extend_from_slice(b"fls: ");
         $(err.extend($item);)*
+        if err.last() != Some(&b'\n') {
+            err.push(b'\n');
+        }
         let _ = veneer::syscalls::write(2, &err[..]);
     }};
 }
@@ -309,8 +312,11 @@ pub fn write_grid<T: DirEntry>(
 
     for tmp_rows in (1..entries.len()).rev() {
         let mut tmp_widths: SmallVec<[usize; 16]> = SmallVec::new();
+
+        // Compute the width of each column
         for column in lengths.chunks(tmp_rows) {
-            let width = column.iter().max().copied().unwrap_or(1) + 2; // 2 for padding between columns
+            // 2 for padding between columns
+            let width = column.iter().max().copied().unwrap_or(1) + 2;
             tmp_widths.push(width);
         }
         // Try to exit early if we're in a huge directory
