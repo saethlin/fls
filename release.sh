@@ -17,4 +17,4 @@ curl -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.githu
 
 ID=$(python3 -c 'import json,sys;obj=json.load(sys.stdin);print(obj["id"])' < /tmp/response)
 
-curl -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3+json" -H "Content-type: application/octet-stream" --data @target/release/fls "https://uploads.github.com/repos/saethlin/fls/releases/${ID}/assets?name=fls"
+curl -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3+json" -H "Content-type: application/octet-stream" --data-binary @target/release/fls "https://uploads.github.com/repos/saethlin/fls/releases/${ID}/assets?name=fls"
