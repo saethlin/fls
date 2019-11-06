@@ -7,11 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
-      - name: Setup
-        run: rustup default nightly
       - name: Build
-        run: cargo build --release
-      - name: Release
         env:
-          PERSONAL_TOKEN: ${{secrets.PERSONAL_TOKEN}}
-        run: python3 release.py
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: docker run -e "GITHUB_TOKEN=${GITHUB_TOKEN}" saethlin/forge:latest sh -c "$(cat release.sh)"
