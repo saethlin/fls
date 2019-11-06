@@ -291,17 +291,17 @@ pub fn write_grid<T: DirEntry>(
     let mut min_len: usize = len_utf8(entries[0].name().as_bytes())
         + entries[0].style(dir, app).1.is_some() as usize
         + inode_len
-        + blocks_len
-        + 2;
+        + blocks_len;
 
     for e in entries {
         let style = e.style(dir, app);
         let len =
-            len_utf8(e.name().as_bytes()) + style.1.is_some() as usize + inode_len + blocks_len + 2;
+            len_utf8(e.name().as_bytes()) + style.1.is_some() as usize + inode_len + blocks_len;
         lengths.push(len);
         styles.push(style);
         min_len = min_len.min(len);
     }
+
     let mut widths: SmallVec<[usize; 16]> = lengths
         .iter()
         .max()
