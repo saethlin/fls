@@ -6,7 +6,11 @@ git clone --depth=1 https://github.com/saethlin/fls
 cd fls
 
 rustup default nightly
+rustup show
+
 cargo build --release
+
+./target/release/fls
 
 COMMIT_HASH=$(git log -n 1 --pretty=format:"%H" | cut -c-7)
 curl -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3+json" --data "{\"tag_name\": \"${COMMIT_HASH}\"}" https://api.github.com/repos/saethlin/fls/releases >  /tmp/response
