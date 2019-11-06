@@ -4,6 +4,8 @@ set -e
 
 git clone --depth=1 https://github.com/saethlin/fls
 cd fls
+
+rustup default nightly
 cargo build --release
 
 COMMIT_HASH=$(git log -n 1 --pretty=format:"%H" | cut -c-7)
