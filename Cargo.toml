@@ -8,10 +8,10 @@ license = "GPL-3.0-or-later"
 [dependencies]
 veneer = {git = "https://github.com/saethlin/veneer"}
 libc = "0.2"
-smallvec = {version = "0.6", default-features = false}
+smallvec = {version = "1.0", default-features = false}
 arrayvec = {version = "0.5", default-features = false}
 itoa = {version = "0.4", default-features = false}
-libm = "0.1"
+libm = "0.2"
 unicode-segmentation = "1.3"
 
 [profile.dev]
@@ -20,5 +20,5 @@ panic = "abort"
 
 [profile.release]
 debug = 1
-lto = "fat"
+lto = false
 panic = "abort"

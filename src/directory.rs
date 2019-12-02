@@ -168,8 +168,8 @@ pub fn extension_style(name: &[u8]) -> Style {
         Some(ext) => ext,
     };
     let compressed: &[&[u8]] = &[b"tar", b"gz", b"tgz", b"xz"];
-    let document: &[&[u8]] = &[b"pdf", b"eps"];
-    let media: &[&[u8]] = &[b"png", b"mp4", b"jpg", b"jpeg"];
+    let document: &[&[u8]] = &[b"pdf", b"eps", b"doc", b"docx"];
+    let media: &[&[u8]] = &[b"png", b"mp3", b"mp4", b"jpg", b"jpeg", b"svg"];
     if compressed.contains(&extension) {
         Style::Red
     } else if document.contains(&extension) || media.contains(&extension) {

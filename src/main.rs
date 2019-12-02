@@ -82,7 +82,8 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                         b": ",
                         e.msg().as_bytes(),
                         b" \"",
-                        arg.as_bytes()
+                        arg.as_bytes(),
+                        b"\""
                     );
                 }
             }
