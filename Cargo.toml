@@ -20,5 +20,5 @@ panic = "abort"
 
 [profile.release]
 debug = 1
-lto = false
+lto = "fat"
 panic = "abort"
