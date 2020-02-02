@@ -42,9 +42,8 @@ use directory::DirEntry;
 use output::*;
 use style::Style;
 
-use veneer::syscalls;
-use veneer::CStr;
-use veneer::Error;
+use veneer::directory::DType;
+use veneer::{syscalls, CStr, Error};
 
 #[no_mangle]
 unsafe extern "C" fn main(argc: isize, argv: *const *const libc::c_char) -> i32 {
@@ -247,7 +246,10 @@ fn list_dir_contents(
 
         if app.recurse {
             app.out.push(b'\n');
-            for e in entries.into_iter().filter(|e| e.is_dir() != Some(false)) {
+            for e in entries
+                .into_iter()
+                .filter(|e| e.d_type() == DType::DIR || e.d_type() == DType::UNKNOWN)
+            {
                 let mut path = name.as_bytes().to_vec();
                 if path.last() != Some(&b'/') {
                     path.push(b'/');
