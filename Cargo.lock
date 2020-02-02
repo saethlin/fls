@@ -33,7 +33,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "veneer"
 version = "0.1.0"
-source = "git+https://github.com/saethlin/veneer#c5813b08bfde0aa7da03e8bedb1b7245036df609"
+source = "git+https://github.com/saethlin/veneer#791883de7a2c6ee30d0cca63a8b6e2b3c0fe7fc9"
 dependencies = [
  "libc 0.2.66 (registry+https://github.com/rust-lang/crates.io-index)",
  "syscall 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",

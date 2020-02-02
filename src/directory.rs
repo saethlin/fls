@@ -62,6 +62,22 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
         use EntryType::*;
         if app.color == Color::Never {
             return (Style::White, None);
+        } else if app.color == Color::Sometimes {
+            let (style, suffix) = match self.d_type() {
+                DType::DIR => Directory,
+                DType::FIFO => Fifo,
+                DType::SOCK => Socket,
+                DType::CHR | DType::BLK => Other,
+                DType::LNK => Link,
+                DType::REG | DType::UNKNOWN => Regular,
+            }
+            .style(app);
+
+            return if let Some(style) = style {
+                (style, suffix)
+            } else {
+                (extension_style(self.name().as_bytes()), suffix)
+            };
         }
         let (style, suffix) = match self.d_type() {
             DType::DIR => Directory,
@@ -128,6 +144,8 @@ impl<'a> DirEntry for File<'a> {
         use EntryType::*;
         if app.color == Color::Never {
             return (Style::White, None);
+        } else if app.color == Color::Sometimes {
+            return (extension_style(self.name().as_bytes()), None);
         }
         let entry_type = if app.follow_symlinks == FollowSymlinks::Always {
             syscalls::fstatat(dir.raw_fd(), self.name()).map(|s| app.convert_status(s))
