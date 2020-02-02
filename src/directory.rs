@@ -1,4 +1,4 @@
-use crate::cli::{App, FollowSymlinks};
+use crate::cli::{App, Color, FollowSymlinks};
 use crate::Style;
 use veneer::directory::DType;
 use veneer::{syscalls, CStr};
@@ -71,6 +71,9 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
 
     fn style(&self, dir: &veneer::Directory, app: &App) -> (Style, Option<u8>) {
         use EntryType::*;
+        if app.color == Color::Never {
+            return (Style::White, None);
+        }
         let (style, suffix) = match self.d_type() {
             DType::DIR => Directory,
             DType::FIFO => Fifo,
@@ -134,6 +137,9 @@ impl<'a> DirEntry for File<'a> {
 
     fn style(&self, dir: &veneer::Directory, app: &App) -> (Style, Option<u8>) {
         use EntryType::*;
+        if app.color == Color::Never {
+            return (Style::White, None);
+        }
         let entry_type = if app.follow_symlinks == FollowSymlinks::Always {
             syscalls::fstatat(dir.raw_fd(), self.name()).map(|s| app.convert_status(s))
         } else {

@@ -1,7 +1,6 @@
 use crate::cli::App;
 use crate::directory::DirEntry;
 use crate::{Status, Style};
-use alloc::vec;
 use alloc::vec::Vec;
 use smallvec::{smallvec, SmallVec};
 

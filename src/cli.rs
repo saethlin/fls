@@ -22,10 +22,17 @@ pub struct App {
     pub convert_id_to_name: bool,
     pub print_owner: bool,
     pub print_group: bool,
+    pub color: Color,
 
     pub args: Vec<CStr<'static>>,
     pub uid_names: Vec<(u32, SmallVec<[u8; 24]>)>,
     pub gid_names: Vec<(u32, SmallVec<[u8; 24]>)>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Color {
+    Always,
+    Never,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -82,6 +89,7 @@ impl App {
     pub fn from_arguments(raw_args: Vec<CStr<'static>>) -> Result<Self, crate::Error> {
         let mut args = Vec::with_capacity(raw_args.len());
         let mut switches = Vec::with_capacity(16);
+        let mut named_arguments = Vec::new();
         let mut args_valid = true;
 
         let mut hit_only_arg_marker = false;
@@ -89,20 +97,16 @@ impl App {
         for arg in raw_args.into_iter().skip(1) {
             if arg.as_bytes() == b"--" {
                 hit_only_arg_marker = true;
-                continue;
-            }
-            if hit_only_arg_marker || arg.get(0) != Some(b'-') {
+            } else if hit_only_arg_marker {
                 args.push(arg);
+            // Things like --color=always
+            } else if arg.as_bytes().starts_with(b"--") {
+                named_arguments.push(arg);
+            // Things like -R
+            } else if arg.get(0) == Some(b'-') {
+                switches.extend(arg.as_bytes().iter().cloned().skip(1));
             } else {
-                // Somebody passed (or tried to pass) a GNU appion. Ignore it.
-                if arg.get(0) == Some(b'-') && arg.get(1) == Some(b'-') {
-                    args_valid = false;
-                    error!(b"unrecognized option \'", arg.as_bytes(), b"\'\n");
-                    continue;
-                }
-                if arg.get(0) == Some(b'-') {
-                    switches.extend(arg.as_bytes().iter().cloned().skip(1));
-                }
+                args.push(arg);
             }
         }
         if args.is_empty() {
@@ -127,11 +131,33 @@ impl App {
             convert_id_to_name: true,
             print_owner: true,
             print_group: true,
+            color: Color::Always,
             out: BufferedStdout::terminal(),
             args,
             uid_names: Vec::new(),
             gid_names: Vec::new(),
         };
+
+        for arg in named_arguments.iter().map(CStr::as_bytes) {
+            if let Some(p) = arg.iter().position(|b| *b == b'=') {
+                let (name, value) = arg.split_at(p);
+                let name = &name[2..]; // Trim off the --
+                let value = &value[1..]; // Trim off the =
+                if name == b"color" {
+                    match value {
+                        b"always" => app.color = Color::Always,
+                        b"never" => app.color = Color::Never,
+                        _ => {
+                            error!(b"invalid argument \'", value, b"\' for \'", name, b"'\n");
+                        }
+                    }
+                } else {
+                    error!(b"unrecognized option \'", arg, b"\'\n");
+                }
+            } else {
+                error!(b"unrecognized option \'", arg, b"\'\n");
+            }
+        }
 
         for switch in switches.iter().cloned() {
             match switch {
