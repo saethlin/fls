@@ -62,7 +62,7 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
         use EntryType::*;
         if app.color == Color::Never {
             return (Style::White, None);
-        } else if app.color == Color::Sometimes {
+        } else if app.color == Color::Auto {
             let (style, suffix) = match self.d_type() {
                 DType::DIR => Directory,
                 DType::FIFO => Fifo,
@@ -144,7 +144,7 @@ impl<'a> DirEntry for File<'a> {
         use EntryType::*;
         if app.color == Color::Never {
             return (Style::White, None);
-        } else if app.color == Color::Sometimes {
+        } else if app.color == Color::Auto {
             return (extension_style(self.name().as_bytes()), None);
         }
         let entry_type = if app.follow_symlinks == FollowSymlinks::Always {
