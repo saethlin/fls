@@ -2,7 +2,6 @@ use crate::cli::App;
 use crate::directory::DirEntry;
 use crate::{Status, Style};
 use alloc::vec::Vec;
-use smallvec::{smallvec, SmallVec};
 
 use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR};
 use unicode_segmentation::UnicodeSegmentation;
@@ -34,27 +33,17 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
 
     let get_name = |id: libc::uid_t| unsafe {
         core::ptr::NonNull::new(libc::getpwuid(id)).map(|pw| {
-            let mut name: SmallVec<[u8; 24]> = SmallVec::new();
-            let name_ptr = pw.as_ref().pw_name;
-            let mut offset = 0;
-            while *name_ptr.offset(offset) != 0 {
-                name.push(*name_ptr.offset(offset) as u8);
-                offset += 1;
-            }
-            name
+            veneer::CStr::from_ptr(pw.as_ref().pw_name)
+                .as_bytes()
+                .to_vec()
         })
     };
 
     let get_group = |id: libc::gid_t| unsafe {
         core::ptr::NonNull::new(libc::getgrgid(id)).map(|gr| {
-            let mut group: SmallVec<[u8; 24]> = SmallVec::new();
-            let group_ptr = gr.as_ref().gr_name;
-            let mut offset = 0;
-            while *group_ptr.offset(offset) != 0 {
-                group.push(*group_ptr.offset(offset) as u8);
-                offset += 1;
-            }
-            group
+            veneer::CStr::from_ptr(gr.as_ref().gr_name)
+                .as_bytes()
+                .to_vec()
         })
     };
 
@@ -180,7 +169,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
             .style(Style::White)
             .align_right(status.links as usize, largest_links);
 
-        let get_or_default = |container: &[(libc::id_t, SmallVec<[u8; 24]>)], key| {
+        let get_or_default = |container: &[(libc::id_t, Vec<u8>)], key| {
             container
                 .iter()
                 .find(|&it| it.0 == key)
@@ -284,13 +273,8 @@ pub fn write_grid<T: DirEntry>(
         0
     };
 
-    let mut rows = entries.len();
     let mut lengths: Vec<usize> = Vec::with_capacity(entries.len());
     let mut styles = Vec::with_capacity(entries.len());
-    let mut min_len: usize = len_utf8(entries[0].name().as_bytes())
-        + entries[0].style(dir, app).1.is_some() as usize
-        + inode_len
-        + blocks_len;
 
     for e in entries {
         let style = e.style(dir, app);
@@ -298,39 +282,30 @@ pub fn write_grid<T: DirEntry>(
             len_utf8(e.name().as_bytes()) + style.1.is_some() as usize + inode_len + blocks_len;
         lengths.push(len);
         styles.push(style);
-        min_len = min_len.min(len);
     }
 
-    let mut widths: SmallVec<[usize; 16]> = lengths
-        .iter()
-        .max()
-        .map(|max_len| smallvec![*max_len])
-        .unwrap();
+    let mut rows = entries.len();
+    for num_rows in (1..entries.len()).rev() {
+        let mut width_of_this_layout = 0;
 
-    let max_columns = terminal_width / min_len;
-
-    for tmp_rows in (1..entries.len()).rev() {
-        let mut tmp_widths: SmallVec<[usize; 16]> = SmallVec::new();
-
-        // Compute the width of each column
-        for column in lengths.chunks(tmp_rows) {
-            // 2 for padding between columns
-            let width = column.iter().max().copied().unwrap_or(1) + 2;
-            tmp_widths.push(width);
+        // Add on the width of each column
+        for column in lengths.chunks(num_rows) {
+            width_of_this_layout += column.iter().max().copied().unwrap_or(1) + 2;
         }
-        // Try to exit early if we're in a huge directory
-        if tmp_widths.len() > max_columns {
+        width_of_this_layout = width_of_this_layout.saturating_sub(2);
+
+        if width_of_this_layout <= terminal_width {
+            rows = num_rows;
+        } else {
             break;
         }
-
-        if let Some(w) = tmp_widths.last_mut() {
-            *w -= 2;
-        }
-        if tmp_widths.iter().sum::<usize>() <= terminal_width {
-            rows = tmp_rows;
-            widths = tmp_widths;
-        }
     }
+
+    let mut widths = lengths
+        .chunks(rows)
+        .map(|column| column.iter().max().copied().unwrap_or(1) + 2)
+        .collect::<Vec<_>>();
+    widths.last_mut().map(|w| *w -= 2);
 
     for r in 0..rows {
         for (c, width) in widths.iter().enumerate() {
@@ -443,7 +418,7 @@ fn len_utf8(bytes: &[u8]) -> usize {
         bytes.len()
     } else {
         core::str::from_utf8(bytes)
-            .map(|s| s.graphemes(false).count())
+            .map(|s| s.graphemes(true).count())
             .unwrap_or_else(|_| bytes.len())
     }
 }
@@ -545,7 +520,8 @@ where
 }
 
 pub struct BufferedStdout {
-    buf: arrayvec::ArrayVec<[u8; 4096]>,
+    buf: [u8; 4096],
+    buf_used: usize,
     style: Style,
     is_terminal: bool,
 }
@@ -553,7 +529,8 @@ pub struct BufferedStdout {
 impl BufferedStdout {
     pub fn terminal() -> Self {
         Self {
-            buf: arrayvec::ArrayVec::new(),
+            buf: [0u8; 4096],
+            buf_used: 0,
             style: Style::Reset,
             is_terminal: true,
         }
@@ -561,7 +538,8 @@ impl BufferedStdout {
 
     pub fn file() -> Self {
         Self {
-            buf: arrayvec::ArrayVec::new(),
+            buf: [0u8; 4096],
+            buf_used: 0,
             style: Style::Reset,
             is_terminal: false,
         }
@@ -572,21 +550,20 @@ impl BufferedStdout {
     }
 
     pub fn push(&mut self, b: u8) -> &mut Self {
-        if self.buf.try_push(b).is_err() {
+        if let Some(out) = self.buf.get_mut(self.buf_used) {
+            *out = b;
+            self.buf_used += 1;
+        } else {
             write_to_stdout(&self.buf);
-            self.buf.clear();
-            self.buf.push(b);
+            self.buf_used = 1;
+            self.buf[0] = b;
         }
         self
     }
 
     pub fn write(&mut self, bytes: &[u8]) -> &mut Self {
         for b in bytes {
-            if self.buf.try_push(*b).is_err() {
-                write_to_stdout(&self.buf);
-                self.buf.clear();
-                self.buf.push(*b);
-            }
+            self.push(*b);
         }
         self
     }
@@ -625,14 +602,19 @@ impl BufferedStdout {
 impl Drop for BufferedStdout {
     fn drop(&mut self) {
         self.style(Style::Reset);
-        write_to_stdout(&self.buf);
+        // Panicking in a Drop is probably a bad idea, so we prefer to be slightly wrong
+        // in the case that our index has become invalid
+        self.buf
+            .get(..self.buf_used)
+            .map(|buf| write_to_stdout(buf));
     }
 }
 
 fn write_to_stdout(bytes: &[u8]) {
     let mut bytes_written = 0;
     while bytes_written < bytes.len() {
-        bytes_written += syscalls::write(libc::STDOUT_FILENO, &bytes[bytes_written..]).unwrap();
+        bytes_written += syscalls::write(libc::STDOUT_FILENO, &bytes[bytes_written..])
+            .unwrap_or_else(|_| syscalls::exit(-1));
     }
 }
 
@@ -648,8 +630,10 @@ fn month_abbr(month: libc::c_int) -> &'static [u8] {
     }
 }
 
-use core::cmp::Ordering;
-pub fn vercmp(s1_cstr: veneer::CStr, s2_cstr: veneer::CStr) -> Ordering {
+// This code was translated almost directly from the implementation in GNU ls
+//
+pub fn vercmp(s1_cstr: veneer::CStr, s2_cstr: veneer::CStr) -> core::cmp::Ordering {
+    use core::cmp::Ordering;
     let s1 = s1_cstr.as_bytes();
     let s2 = s2_cstr.as_bytes();
     let mut s1_pos: usize = 0;
@@ -657,6 +641,7 @@ pub fn vercmp(s1_cstr: veneer::CStr, s2_cstr: veneer::CStr) -> Ordering {
 
     while s1_pos < s1.len() || s2_pos < s2.len() {
         let mut first_diff = Ordering::Equal;
+        // Compare lexicographic until we hit a numeral
         while (s1_pos < s1.len() && !s1.digit_at(s1_pos))
             || (s2_pos < s2.len() && !s2.digit_at(s2_pos))
         {
@@ -668,13 +653,14 @@ pub fn vercmp(s1_cstr: veneer::CStr, s2_cstr: veneer::CStr) -> Ordering {
             s1_pos += 1;
             s2_pos += 1;
         }
+        // Skip leading zeroes in both strings
         while s1.get(s1_pos) == Some(&b'0') {
             s1_pos += 1;
         }
         while s2.get(s2_pos) == Some(&b'0') {
             s2_pos += 1;
         }
-
+        // Advance forward while they are both characters
         while s1.digit_at(s1_pos) && s2.digit_at(s2_pos) {
             if first_diff == Ordering::Equal {
                 first_diff = s1.get(s1_pos).cmp(&s2.get(s2_pos));
@@ -682,6 +668,7 @@ pub fn vercmp(s1_cstr: veneer::CStr, s2_cstr: veneer::CStr) -> Ordering {
             s1_pos += 1;
             s2_pos += 1;
         }
+        // If one string has more digits than the other, the number is larger
         if s1.digit_at(s1_pos) {
             return Ordering::Greater;
         }

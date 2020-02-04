@@ -30,7 +30,6 @@ mod output;
 
 extern crate alloc;
 use alloc::vec::Vec;
-use smallvec::SmallVec;
 
 pub mod cli;
 mod directory;
@@ -200,7 +199,7 @@ fn list_dir_contents(
         }
     };
     let hint = contents.iter().size_hint();
-    let mut entries: SmallVec<[veneer::directory::DirEntry; 32]> = SmallVec::new();
+    let mut entries = Vec::new();
     entries.reserve(hint.1.unwrap_or(hint.0));
 
     match app.show_all {

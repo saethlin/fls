@@ -1,6 +1,5 @@
 use crate::output::BufferedStdout;
 use alloc::vec::Vec;
-use smallvec::SmallVec;
 use veneer::CStr;
 
 pub struct App {
@@ -25,8 +24,8 @@ pub struct App {
     pub color: Color,
 
     pub args: Vec<CStr<'static>>,
-    pub uid_names: Vec<(u32, SmallVec<[u8; 24]>)>,
-    pub gid_names: Vec<(u32, SmallVec<[u8; 24]>)>,
+    pub uid_names: Vec<(u32, Vec<u8>)>,
+    pub gid_names: Vec<(u32, Vec<u8>)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
