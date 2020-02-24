@@ -291,6 +291,7 @@ impl App {
             mode: status.st_mode,
             size: status.st_size,
             blocks: status.st_blocks,
+            block_size: status.st_blksize,
             uid: status.st_uid,
             gid: status.st_gid,
             inode: status.st_ino,

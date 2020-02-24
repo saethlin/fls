@@ -82,7 +82,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         largest_links = largest_links.max(status.links as usize);
         inode_len = inode_len.max(status.inode as usize);
         blocks_len = blocks_len.max(status.blocks as usize);
-        blocks += status.blocks;
+        blocks += status.blocks * status.block_size / 8192;
     }
 
     print!(app, "total ", blocks, "\n");
@@ -93,12 +93,8 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
     inode_len = buf.format(inode_len).len();
     blocks_len = buf.format(blocks_len).len();
 
-    let current_year = unsafe {
-        let mut localtime = core::mem::zeroed();
-        let time = libc::time(core::ptr::null_mut());
-        libc::localtime_r(&time, &mut localtime);
-        localtime.tm_year
-    };
+    let current_time = unsafe { libc::time(core::ptr::null_mut()) };
+    let one_year = 365 * 24 * 60 * 60;
 
     for direntry in entries {
         let e = &direntry.0;
@@ -148,7 +144,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
             match mode & libc::S_IFMT {
                 libc::S_IFDIR => (BlueBold, "d"),
                 libc::S_IFLNK => (Cyan, "l"),
-                _ => (White, "."),
+                _ => (White, "-"),
             }
         );
 
@@ -209,9 +205,9 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         let day = localtime.tm_mday;
         print!(app, (day < 10).map(" "), day, " ");
 
-        if localtime.tm_year == current_year {
+        if current_time - status.time < one_year / 2 {
             let hour = localtime.tm_hour;
-            print!(app, (hour < 10).map(" "), hour, ":");
+            print!(app, (hour < 10).map("0"), hour, ":");
 
             let minute = localtime.tm_min;
             print!(app, (minute < 10).map("0"), minute);
@@ -226,9 +222,8 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
 
         if (mode & libc::S_IFMT) == libc::S_IFLNK {
             let mut buf = [0u8; 1024];
-            let len = veneer::syscalls::readlinkat(dir.raw_fd(), e.name(), &mut buf).unwrap_or(0);
-            if len > 0 {
-                print!(app, Style::Gray, " -> ", Style::White, &buf[..len]);
+            if let Ok(linked_to) = veneer::syscalls::readlinkat(dir.raw_fd(), e.name(), &mut buf) {
+                print!(app, Style::Gray, " -> ", Style::White, linked_to);
             }
         }
 
@@ -604,9 +599,9 @@ impl Drop for BufferedStdout {
         self.style(Style::Reset);
         // Panicking in a Drop is probably a bad idea, so we prefer to be slightly wrong
         // in the case that our index has become invalid
-        self.buf
-            .get(..self.buf_used)
-            .map(|buf| write_to_stdout(buf));
+        if let Some(buf) = self.buf.get(..self.buf_used) {
+            write_to_stdout(buf);
+        }
     }
 }
 
@@ -614,7 +609,10 @@ fn write_to_stdout(bytes: &[u8]) {
     let mut bytes_written = 0;
     while bytes_written < bytes.len() {
         bytes_written += syscalls::write(libc::STDOUT_FILENO, &bytes[bytes_written..])
-            .unwrap_or_else(|_| syscalls::exit(-1));
+            .unwrap_or_else(|_| {
+                syscalls::exit(-1);
+                0
+            });
     }
 }
 
@@ -623,11 +621,7 @@ fn month_abbr(month: libc::c_int) -> &'static [u8] {
         b"Jan", b"Feb", b"Mar", b"Apr", b"May", b"Jun", b"Jul", b"Aug", b"Sep", b"Oct", b"Nov",
         b"Dec",
     ];
-    if month < 12 {
-        month_names[month as usize]
-    } else {
-        b"???"
-    }
+    month_names.get(month as usize).copied().unwrap_or(b"???")
 }
 
 // This code was translated almost directly from the implementation in GNU ls

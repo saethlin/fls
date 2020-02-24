@@ -1,8 +1,6 @@
 #![no_main]
 #![no_std]
 #![feature(lang_items, alloc_error_handler)]
-// Functions should not be broken up unless they contain reusable parts
-#![allow(clippy::cognitive_complexity)]
 
 #[lang = "eh_personality"]
 #[no_mangle]
@@ -14,12 +12,16 @@ pub extern "C" fn rust_eh_unwind_resume() {}
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
-    unsafe { libc::abort() }
+    let _ = veneer::syscalls::kill(0, libc::SIGABRT);
+    veneer::syscalls::exit(-1);
+    loop {}
 }
 
 #[alloc_error_handler]
 fn alloc_error(_: core::alloc::Layout) -> ! {
-    unsafe { libc::abort() }
+    let _ = veneer::syscalls::kill(0, libc::SIGABRT);
+    veneer::syscalls::exit(-1);
+    loop {}
 }
 
 #[global_allocator]
@@ -248,6 +250,8 @@ fn list_dir_contents(
             for e in entries
                 .into_iter()
                 .filter(|e| e.d_type() == DType::DIR || e.d_type() == DType::UNKNOWN)
+                .filter(|e| e.name().as_bytes() != b"..")
+                .filter(|e| e.name().as_bytes() != b".")
             {
                 let mut path = name.as_bytes().to_vec();
                 if path.last() != Some(&b'/') {
@@ -315,13 +319,18 @@ fn list_dir_contents(
 
         if app.recurse {
             app.out.push(b'\n');
-            for e in entries_and_stats.into_iter().filter_map(|(e, status)| {
-                if status.mode & libc::S_IFMT == libc::S_IFDIR {
-                    Some(e)
-                } else {
-                    None
-                }
-            }) {
+            for e in entries_and_stats
+                .into_iter()
+                .filter_map(|(e, status)| {
+                    if status.mode & libc::S_IFMT == libc::S_IFDIR {
+                        Some(e)
+                    } else {
+                        None
+                    }
+                })
+                .filter(|e| e.name().as_bytes() != b"..")
+                .filter(|e| e.name().as_bytes() != b".")
+            {
                 let mut path = name.as_bytes().to_vec();
                 if path.last() != Some(&b'/') {
                     path.push(b'/');
@@ -342,6 +351,7 @@ pub struct Status {
     pub mode: libc::mode_t,
     pub size: libc::off_t,
     pub blocks: libc::blkcnt64_t,
+    pub block_size: libc::blksize_t,
     pub uid: libc::uid_t,
     pub gid: libc::gid_t,
     pub time: libc::time_t,
