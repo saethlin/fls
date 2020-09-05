@@ -1,6 +1,4 @@
-use crate::cli::App;
-use crate::directory::DirEntry;
-use crate::{Status, Style};
+use crate::{cli::App, directory::DirEntry, Status, Style};
 use alloc::vec::Vec;
 
 use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR};
@@ -300,7 +298,9 @@ pub fn write_grid<T: DirEntry>(
         .chunks(rows)
         .map(|column| column.iter().max().copied().unwrap_or(1) + 2)
         .collect::<Vec<_>>();
-    widths.last_mut().map(|w| *w -= 2);
+    if let Some(width) = widths.last_mut() {
+        *width -= 2;
+    }
 
     for r in 0..rows {
         for (c, width) in widths.iter().enumerate() {

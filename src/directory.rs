@@ -1,7 +1,8 @@
-use crate::cli::{App, Color, FollowSymlinks};
-use crate::Style;
-use veneer::directory::DType;
-use veneer::{syscalls, CStr};
+use crate::{
+    cli::{App, Color, FollowSymlinks},
+    Style,
+};
+use veneer::{directory::DType, syscalls, CStr};
 
 pub trait DirEntry {
     fn name(&self) -> CStr;

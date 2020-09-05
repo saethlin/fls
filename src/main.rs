@@ -6,10 +6,6 @@
 #[no_mangle]
 pub extern "C" fn rust_eh_personality() {}
 
-#[lang = "eh_unwind_resume"]
-#[no_mangle]
-pub extern "C" fn rust_eh_unwind_resume() {}
-
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     let _ = veneer::syscalls::kill(0, libc::SIGABRT);
@@ -43,8 +39,7 @@ use directory::DirEntry;
 use output::*;
 use style::Style;
 
-use veneer::directory::DType;
-use veneer::{syscalls, CStr, Error};
+use veneer::{directory::DType, syscalls, CStr, Error};
 
 #[no_mangle]
 unsafe extern "C" fn main(argc: isize, argv: *const *const libc::c_char) -> i32 {
