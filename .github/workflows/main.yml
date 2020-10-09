@@ -13,3 +13,4 @@ jobs:
           image: 'Dockerfile'
           env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          run: ls
