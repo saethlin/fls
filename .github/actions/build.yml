@@ -1,0 +1,7 @@
+name: "Build"
+description: "Why"
+runs:
+  using: "docker"
+  image: "Dockerfile"
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

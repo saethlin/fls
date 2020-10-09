@@ -9,9 +9,4 @@ jobs:
       - name: checkout
         uses: actions/checkout@v2
       - name: Build
-        runs:
-          using: 'docker'
-          image: 'Dockerfile'
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: echo this
+        uses: ./build.yml
