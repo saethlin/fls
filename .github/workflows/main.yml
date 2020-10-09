@@ -8,9 +8,9 @@ jobs:
     steps:
       - uses: actions/checkout@v1
       - name: Build
+        run: ls
         runs:
           using: 'docker'
           image: 'Dockerfile'
           env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          run: ls
