@@ -10,4 +10,4 @@ jobs:
       - name: Build
         env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: docker run -e "GITHUB_TOKEN=${GITHUB_TOKEN}" saethlin/forge:latest sh -c "$(cat release.sh)"
+        run: docker run --env GITHUB_TOKEN=${GITHUB_TOKEN} saethlin/forge:latest sh -c "$(cat release.sh)"
