@@ -6,9 +6,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
+      - name: checkout
+        uses: actions/checkout@v2
       - name: Build
-        run: ls
+        uses: ./
         runs:
           using: 'docker'
           image: 'Dockerfile'
