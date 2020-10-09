@@ -8,6 +8,8 @@ jobs:
     steps:
       - uses: actions/checkout@v1
       - name: Build
-        env:
+        runs:
+          using: 'docker'
+          image: 'Dockerfile'
+          env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: docker run --env GITHUB_TOKEN=${GITHUB_TOKEN} saethlin/forge:latest sh -c "$(cat release.sh)"
