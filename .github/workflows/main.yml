@@ -9,4 +9,6 @@ jobs:
       - name: checkout
         uses: actions/checkout@v2
       - name: Build
-        uses: ./.github/actions/build.yml
+        uses: ./
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
