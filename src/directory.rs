@@ -176,18 +176,68 @@ impl<'a> DirEntry for File<'a> {
     }
 }
 
+static IMAGE: &[&[u8]] = &[
+    b"png", b"jpeg", b"jpg", b"gif", b"bmp", b"tiff", b"tif", b"ppm", b"pgm", b"pbm", b"pnm",
+    b"webp", b"raw", b"arw", b"svg", b"stl", b"eps", b"dvi", b"ps", b"cbr", b"jpf", b"cbz", b"xpm",
+    b"ico", b"cr2", b"orf", b"nef", b"heif",
+];
+
+static VIDEO: &[&[u8]] = &[
+    b"avi", b"flv", b"m2v", b"m4v", b"mkv", b"mov", b"mp4", b"mpeg", b"mpg", b"ogm", b"ogv",
+    b"vob", b"wmv", b"webm", b"m2ts", b"heic",
+];
+
+static MUSIC: &[&[u8]] = &[b"aac", b"m4a", b"mp3", b"ogg", b"wma", b"mka", b"opus"];
+
+static LOSSLESS: &[&[u8]] = &[b"alac", b"ape", b"flac", b"wav"];
+
+static CRYPTO: &[&[u8]] = &[
+    b"asc",
+    b"enc",
+    b"gpg",
+    b"pgp",
+    b"sig",
+    b"signature",
+    b"pfx",
+    b"p12",
+];
+
+static DOCUMENT: &[&[u8]] = &[
+    b"djvu", b"doc", b"docx", b"dvi", b"eml", b"eps", b"fotd", b"key", b"keynote", b"numbers",
+    b"odp", b"odt", b"pages", b"pdf", b"ppt", b"pptx", b"rtf", b"xls", b"xlsx",
+];
+
+static COMPRESSED: &[&[u8]] = &[
+    b"zip", b"tar", b"Z", b"z", b"gz", b"bz2", b"a", b"ar", b"7z", b"iso", b"dmg", b"tc", b"rar",
+    b"par", b"tgz", b"xz", b"txz", b"lz", b"tlz", b"lzma", b"deb", b"rpm", b"zst",
+];
+
+static TEMP: &[&[u8]] = &[b"tmp", b"swp", b"swo", b"swn", b"bak", b"bk"];
+
 pub fn extension_style(name: &[u8]) -> Style {
+    if name.get(0) == Some(&b'#') || name.last() == Some(&b'~') || name.last() == Some(&b'#') {
+        return Style::Fixed(244);
+    }
     let extension = match name.rsplit(|b| *b == b'.').next() {
         None => return Style::White,
         Some(ext) => ext,
     };
-    let compressed: &[&[u8]] = &[b"tar", b"gz", b"tgz", b"xz"];
-    let document: &[&[u8]] = &[b"pdf", b"eps", b"doc", b"docx"];
-    let media: &[&[u8]] = &[b"png", b"mp3", b"mp4", b"jpg", b"jpeg", b"svg"];
-    if compressed.contains(&extension) {
+    if TEMP.contains(&extension) {
+        Style::Fixed(244)
+    } else if IMAGE.contains(&extension) {
+        Style::Fixed(133)
+    } else if VIDEO.contains(&extension) {
+        Style::Fixed(135)
+    } else if MUSIC.contains(&extension) {
+        Style::Fixed(92)
+    } else if LOSSLESS.contains(&extension) {
+        Style::Fixed(93)
+    } else if CRYPTO.contains(&extension) {
+        Style::Fixed(109)
+    } else if DOCUMENT.contains(&extension) {
+        Style::Fixed(105)
+    } else if COMPRESSED.contains(&extension) {
         Style::Red
-    } else if document.contains(&extension) || media.contains(&extension) {
-        Style::Magenta
     } else {
         Style::White
     }

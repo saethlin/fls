@@ -327,7 +327,8 @@ pub fn write_grid<T: DirEntry>(
                     .push(b' ');
             }
 
-            print!(app, style, e.name(), suffix.map(|s| (Style::White, s)));
+            app.out.style(*style);
+            print!(app, e.name(), suffix.map(|s| (Style::White, s)));
 
             for _ in 0..(width - name_len) {
                 app.out.push(b' ');
