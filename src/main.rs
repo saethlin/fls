@@ -39,14 +39,17 @@ use directory::DirEntry;
 use output::*;
 use style::Style;
 
+use core::sync::atomic::{AtomicI32, Ordering::Relaxed};
 use veneer::{directory::DType, syscalls, CStr, Error};
+
+static LAST_ERROR: AtomicI32 = AtomicI32::new(0);
 
 #[no_mangle]
 unsafe extern "C" fn main(argc: isize, argv: *const *const libc::c_char) -> i32 {
     let args = (0..argc).map(|i| CStr::from_ptr(*argv.offset(i))).collect();
 
     match run(args) {
-        Ok(()) => 0,
+        Ok(()) => LAST_ERROR.load(Relaxed),
         Err(e) => e.0 as i32,
     }
 }
@@ -80,6 +83,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                         arg.as_bytes(),
                         b"\""
                     );
+                    LAST_ERROR.store(e.0, Relaxed);
                 }
             }
         }
@@ -125,6 +129,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                             b"': ",
                             err.msg().as_bytes()
                         );
+                        LAST_ERROR.store(err.0, Relaxed);
                     }
                 }
             }
@@ -192,6 +197,7 @@ fn list_dir_contents(
                 b"': ",
                 err.msg().as_bytes()
             );
+            LAST_ERROR.store(err.0, Relaxed);
             return;
         }
     };
@@ -279,6 +285,7 @@ fn list_dir_contents(
                         err.msg().as_bytes(),
                         b"\n"
                     );
+                    LAST_ERROR.store(err.0, Relaxed);
                 }
             }
         }
