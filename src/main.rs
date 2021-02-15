@@ -72,18 +72,22 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
             match veneer::Directory::open(arg) {
                 Ok(d) => dirs.push((arg, d)),
                 Err(Error(20)) => files.push(crate::directory::File { path: arg }),
-                Err(e) => {
-                    let mut buf = itoa::Buffer::new();
-                    error!(
-                        b"OS error ",
-                        buf.format(e.0).as_bytes(),
-                        b": ",
-                        e.msg().as_bytes(),
-                        b" \"",
-                        arg.as_bytes(),
-                        b"\""
-                    );
-                    LAST_ERROR.store(e.0, Relaxed);
+                Err(_) => {
+                    if let Err(e) = veneer::syscalls::stat(arg) {
+                        let mut buf = itoa::Buffer::new();
+                        error!(
+                            b"OS error ",
+                            buf.format(e.0).as_bytes(),
+                            b": ",
+                            e.msg().as_bytes(),
+                            b" \"",
+                            arg.as_bytes(),
+                            b"\""
+                        );
+                        LAST_ERROR.store(e.0, Relaxed);
+                    } else {
+                        files.push(crate::directory::File { path: arg })
+                    }
                 }
             }
         }

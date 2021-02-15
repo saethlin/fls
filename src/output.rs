@@ -115,7 +115,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
 
         let print_readable = |app: &mut App, mask| {
             if mode & mask > 0 {
-                print!(app, GreenBold, "r");
+                print!(app, YellowBold, "r");
             } else {
                 print!(app, Gray, "-");
             }
@@ -123,7 +123,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
 
         let print_writable = |app: &mut App, mask| {
             if mode & mask > 0 {
-                print!(app, YellowBold, "w");
+                print!(app, RedBold, "w");
             } else {
                 print!(app, Gray, "-");
             }
@@ -131,7 +131,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
 
         let print_executable = |app: &mut App, mask| {
             if mode & mask > 0 {
-                print!(app, RedBold, "x");
+                print!(app, GreenBold, "x");
             } else {
                 print!(app, Gray, "-");
             }
@@ -215,7 +215,16 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
 
         app.out.push(b' ');
 
-        let (style, suffix) = direntry.style(dir, app);
+        let (mut style, suffix) = direntry.style(dir, app);
+        // FIXME: This is a hack to get red-colored broken symlinks in -l output.
+        // This logic is at completely the wrong place, and it's setting the style to RedBold, not
+        // BrokenLink.
+        if (mode & libc::S_IFMT) == libc::S_IFLNK
+            && app.color == crate::cli::Color::Always
+            && veneer::syscalls::faccessat(dir.raw_fd(), e.name(), libc::F_OK).is_err()
+        {
+            style = Style::RedBold;
+        }
         print!(app, style, e.name(), suffix.map(|s| (Style::White, s)));
 
         if (mode & libc::S_IFMT) == libc::S_IFLNK {

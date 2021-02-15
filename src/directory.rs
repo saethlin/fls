@@ -104,7 +104,13 @@ impl<'a> DirEntry for veneer::directory::DirEntry<'a> {
                 } else if entry_type == libc::S_IFIFO {
                     Fifo
                 } else if entry_type == libc::S_IFLNK {
-                    Link
+                    if app.color == Color::Always
+                        && syscalls::faccessat(dir.raw_fd(), self.name(), libc::F_OK).is_err()
+                    {
+                        BrokenLink
+                    } else {
+                        Link
+                    }
                 } else if status.mode & libc::S_IXUSR > 0 {
                     Executable
                 } else {
