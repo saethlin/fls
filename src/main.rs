@@ -1,10 +1,6 @@
 #![no_main]
 #![no_std]
-#![feature(lang_items, alloc_error_handler)]
-
-#[lang = "eh_personality"]
-#[no_mangle]
-pub extern "C" fn rust_eh_personality() {}
+#![feature(alloc_error_handler)]
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
@@ -86,14 +82,14 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                         );
                         LAST_ERROR.store(e.0, Relaxed);
                     } else {
-                        files.push(crate::directory::File { path: arg })
+                        files.push(crate::directory::File { path: arg });
                     }
                 }
             }
         }
     } else {
         for arg in app.args.clone() {
-            files.push(crate::directory::File { path: arg })
+            files.push(crate::directory::File { path: arg });
         }
     }
 
@@ -212,13 +208,13 @@ fn list_dir_contents(
     match app.show_all {
         ShowAll::No => {
             for e in contents.iter().filter(|e| e.name().get(0) != Some(b'.')) {
-                entries.push(e)
+                entries.push(e);
             }
         }
         ShowAll::Almost => {
             for e in contents.iter() {
                 if e.name().as_bytes() != b".." && e.name().as_bytes() != b"." {
-                    entries.push(e)
+                    entries.push(e);
                 }
             }
         }
@@ -244,9 +240,9 @@ fn list_dir_contents(
             });
         }
         match app.display_mode {
-            DisplayMode::Grid(width) => write_grid(&entries, &dir, app, width),
-            DisplayMode::SingleColumn => write_single_column(&entries, &dir, app),
-            DisplayMode::Stream => write_stream(&entries, &dir, app),
+            DisplayMode::Grid(width) => write_grid(&entries, dir, app, width),
+            DisplayMode::SingleColumn => write_single_column(&entries, dir, app),
+            DisplayMode::Stream => write_stream(&entries, dir, app),
             DisplayMode::Long => unreachable!(),
         }
 
@@ -317,10 +313,10 @@ fn list_dir_contents(
         }
 
         match app.display_mode {
-            DisplayMode::Grid(width) => write_grid(&entries_and_stats, &dir, app, width),
-            DisplayMode::Long => write_details(&entries_and_stats, &dir, app),
-            DisplayMode::SingleColumn => write_single_column(&entries_and_stats, &dir, app),
-            DisplayMode::Stream => write_stream(&entries_and_stats, &dir, app),
+            DisplayMode::Grid(width) => write_grid(&entries_and_stats, dir, app, width),
+            DisplayMode::Long => write_details(&entries_and_stats, dir, app),
+            DisplayMode::SingleColumn => write_single_column(&entries_and_stats, dir, app),
+            DisplayMode::Stream => write_stream(&entries_and_stats, dir, app),
         }
 
         if app.recurse {

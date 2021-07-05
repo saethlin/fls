@@ -220,6 +220,18 @@ static COMPRESSED: &[&[u8]] = &[
 
 static TEMP: &[&[u8]] = &[b"tmp", b"swp", b"swo", b"swn", b"bak", b"bk"];
 
+static STYLES: &[(&[&[u8]], Style)] = &[
+    (TEMP, Style::Fixed(244)),
+    (IMAGE, Style::Fixed(133)),
+    (VIDEO, Style::Fixed(135)),
+    (MUSIC, Style::Fixed(92)),
+    (LOSSLESS, Style::Fixed(93)),
+    (CRYPTO, Style::Fixed(109)),
+    (DOCUMENT, Style::Fixed(105)),
+    (COMPRESSED, Style::Red),
+];
+
+#[inline(never)]
 pub fn extension_style(name: &[u8]) -> Style {
     if name.get(0) == Some(&b'#') || name.last() == Some(&b'~') || name.last() == Some(&b'#') {
         return Style::Fixed(244);
@@ -228,25 +240,12 @@ pub fn extension_style(name: &[u8]) -> Style {
         None => return Style::White,
         Some(ext) => ext,
     };
-    if TEMP.contains(&extension) {
-        Style::Fixed(244)
-    } else if IMAGE.contains(&extension) {
-        Style::Fixed(133)
-    } else if VIDEO.contains(&extension) {
-        Style::Fixed(135)
-    } else if MUSIC.contains(&extension) {
-        Style::Fixed(92)
-    } else if LOSSLESS.contains(&extension) {
-        Style::Fixed(93)
-    } else if CRYPTO.contains(&extension) {
-        Style::Fixed(109)
-    } else if DOCUMENT.contains(&extension) {
-        Style::Fixed(105)
-    } else if COMPRESSED.contains(&extension) {
-        Style::Red
-    } else {
-        Style::White
+    for (extensions, style) in STYLES {
+        if extensions.contains(&extension) {
+            return *style;
+        }
     }
+    Style::White
 }
 
 impl<T> DirEntry for (T, crate::Status)

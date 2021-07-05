@@ -104,7 +104,7 @@ impl App {
                 named_arguments.push(arg);
             // Things like -R
             } else if arg.get(0) == Some(b'-') {
-                switches.extend(arg.as_bytes().iter().cloned().skip(1));
+                switches.extend(arg.as_bytes().iter().copied().skip(1));
             } else {
                 args.push(arg);
             }
@@ -160,7 +160,7 @@ impl App {
             }
         }
 
-        for switch in switches.iter().cloned() {
+        for switch in switches.iter().copied() {
             match switch {
                 b'A' => {
                     app.show_all = ShowAll::Almost;

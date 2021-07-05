@@ -9,7 +9,7 @@ license = "GPL-3.0-or-later"
 veneer = {git = "https://github.com/saethlin/veneer"}
 libc = "0.2"
 itoa = {version = "0.4", default-features = false}
-unicode-segmentation = "1.3"
+unicode-segmentation = "1.8"
 
 [profile.dev]
 opt-level = 1
