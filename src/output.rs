@@ -1,13 +1,17 @@
-use crate::{cli::App, directory::DirEntry, Status, Style};
-use alloc::vec::Vec;
+use crate::directory::DirEntryExt;
+use crate::veneer;
+use crate::veneer::syscalls;
+use crate::veneer::DirEntry;
+use crate::{cli::App, Status, Style};
+use bumpalo::collections::Vec;
 
 use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR};
 use unicode_segmentation::UnicodeSegmentation;
-use veneer::syscalls;
 
 macro_rules! print {
     ($app:expr, $($item:expr),+) => {
         {
+        use crate::output::Writable;
         $($item.write(&mut $app.out);)*
     }};
 }
@@ -15,46 +19,59 @@ macro_rules! print {
 macro_rules! error {
     ($($item:expr),+) => {
         {
-        use alloc::vec::Vec;
-        let mut err = Vec::new();
+        let mut err = alloc::vec::Vec::new();
         err.extend_from_slice(b"fls: ");
         $(err.extend($item);)*
         if err.last() != Some(&b'\n') {
             err.push(b'\n');
         }
-        let _ = veneer::syscalls::write(2, &err[..]);
+        let _ = crate::veneer::syscalls::write(2, &err[..]);
     }};
 }
 
+fn get_or_default(container: &[(libc::id_t, alloc::vec::Vec<u8>)], key: libc::id_t) -> &[u8] {
+    container
+        .iter()
+        .find(|&it| it.0 == key)
+        .map(|v| &v.1[..])
+        .unwrap_or_default()
+}
+
 #[inline(never)]
-pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directory, app: &mut App) {
+pub fn write_details(
+    entries: &[(DirEntry, Option<Status>)],
+    dir: &veneer::Directory,
+    app: &mut App,
+) {
     use Style::*;
+
+    let bump = bumpalo::Bump::new();
 
     let get_name = |id: libc::uid_t| unsafe {
         core::ptr::NonNull::new(libc::getpwuid(id)).map(|pw| {
-            veneer::CStr::from_ptr(pw.as_ref().pw_name)
-                .as_bytes()
-                .to_vec()
+            let mut name = Vec::new_in(&bump);
+            name.extend_from_slice(veneer::CStr::from_ptr(pw.as_ref().pw_name).as_bytes());
+            name
         })
     };
 
     let get_group = |id: libc::gid_t| unsafe {
         core::ptr::NonNull::new(libc::getgrgid(id)).map(|gr| {
-            veneer::CStr::from_ptr(gr.as_ref().gr_name)
-                .as_bytes()
-                .to_vec()
+            let mut name = Vec::new_in(&bump);
+            name.extend_from_slice(veneer::CStr::from_ptr(gr.as_ref().gr_name).as_bytes());
+            name
         })
     };
 
-    let mut longest_name_len = 0;
-    let mut longest_group_len = 0;
+    let mut longest_name_len = 1;
+    let mut longest_group_len = 1;
     let mut largest_size = 0;
     let mut largest_links = 0;
     let mut blocks = 0;
     let mut inode_len = 0;
     let mut blocks_len = 0;
 
-    for (_, status) in entries {
+    for status in entries.iter().filter_map(|e| e.1.as_ref()) {
         if app.print_owner && !app.uid_names.iter().any(|(id, _)| *id == status.uid) {
             let name = if app.convert_id_to_name {
                 get_name(status.uid)
@@ -62,13 +79,10 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
                 None
             }
             .unwrap_or_else(|| {
-                itoa::Buffer::new()
-                    .format(status.uid as u64)
-                    .bytes()
-                    .collect()
+                Vec::from_iter_in(itoa::Buffer::new().format(status.uid as u64).bytes(), &bump)
             });
             longest_name_len = longest_name_len.max(name.len());
-            app.uid_names.push((status.uid, name));
+            app.uid_names.push((status.uid, name.to_vec()));
         }
 
         if app.print_group && !app.gid_names.iter().any(|(id, _)| *id == status.gid) {
@@ -78,13 +92,10 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
                 None
             }
             .unwrap_or_else(|| {
-                itoa::Buffer::new()
-                    .format(status.gid as u64)
-                    .bytes()
-                    .collect()
+                Vec::from_iter_in(itoa::Buffer::new().format(status.gid as u64).bytes(), &bump)
             });
             longest_group_len = longest_group_len.max(group.len());
-            app.gid_names.push((status.gid, group));
+            app.gid_names.push((status.gid, group.to_vec()));
         }
 
         largest_size = largest_size.max(status.size as usize);
@@ -107,7 +118,7 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
 
     for direntry in entries {
         let e = &direntry.0;
-        let status = &direntry.1;
+        let status = direntry.1.clone().unwrap_or(Status::default());
         let mode = status.mode;
 
         if app.print_inode {
@@ -174,14 +185,6 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
             .style(Style::White)
             .align_right(status.links, largest_links);
 
-        let get_or_default = |container: &[(libc::id_t, Vec<u8>)], key| {
-            container
-                .iter()
-                .find(|&it| it.0 == key)
-                .map(|v| v.1.clone())
-                .unwrap_or_default()
-        };
-
         if app.print_owner {
             let name = get_or_default(&app.uid_names, status.uid);
             app.out
@@ -232,15 +235,15 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
         // BrokenLink.
         if (mode & libc::S_IFMT) == libc::S_IFLNK
             && app.color == crate::cli::Color::Always
-            && veneer::syscalls::faccessat(dir.raw_fd(), e.name(), libc::F_OK).is_err()
+            && veneer::syscalls::faccessat(dir.raw_fd(), e.name, libc::F_OK).is_err()
         {
             style = Style::RedBold;
         }
-        print!(app, style, e.name(), suffix.map(|s| (Style::White, s)));
+        print!(app, style, e.name, suffix.map(|s| (Style::White, s)));
 
         if (mode & libc::S_IFMT) == libc::S_IFLNK {
             let mut buf = [0u8; 1024];
-            if let Ok(linked_to) = veneer::syscalls::readlinkat(dir.raw_fd(), e.name(), &mut buf) {
+            if let Ok(linked_to) = veneer::syscalls::readlinkat(dir.raw_fd(), e.name, &mut buf) {
                 print!(app, Style::Gray, " -> ", Style::White, linked_to);
             }
         }
@@ -249,20 +252,28 @@ pub fn write_details<T: DirEntry>(entries: &[(T, Status)], dir: &veneer::Directo
     }
 }
 
+fn print_total_blocks(entries: &[(DirEntry, Option<Status>)], app: &mut App) {
+    print!(
+        app,
+        "total ",
+        entries
+            .iter()
+            .filter_map(|(_, s)| s.as_ref())
+            .map(|status| status.blocks)
+            .sum::<i64>(),
+        "\n"
+    );
+}
+
 #[inline(never)]
-pub fn write_grid<T: DirEntry>(
-    entries: &[T],
+pub fn write_grid(
+    entries: &[(DirEntry, Option<Status>)],
     dir: &veneer::Directory,
     app: &mut App,
     terminal_width: usize,
 ) {
     if app.display_size_in_blocks {
-        print!(
-            app,
-            "total ",
-            entries.iter().map(DirEntry::blocks).sum::<u64>(),
-            "\n"
-        );
+        print_total_blocks(entries, app);
     }
 
     if entries.is_empty() {
@@ -270,35 +281,45 @@ pub fn write_grid<T: DirEntry>(
     }
 
     let inode_len = if app.print_inode {
-        let inode = entries.iter().map(DirEntry::inode).max().unwrap_or(0);
+        let inode = entries.iter().map(|e| e.inode()).max().unwrap_or(0);
         itoa::Buffer::new().format(inode as u64).len()
     } else {
         0
     };
 
     let blocks_len = if app.display_size_in_blocks {
-        let blocks = entries.iter().map(DirEntry::blocks).max().unwrap_or(0);
+        let blocks = entries
+            .iter()
+            .filter_map(|(_, s)| s.as_ref())
+            .map(|status| status.blocks)
+            .max()
+            .unwrap_or(0);
         itoa::Buffer::new().format(blocks as u64).len()
     } else {
         0
     };
 
-    let mut lengths: Vec<usize> = Vec::with_capacity(entries.len());
-    let mut styles = Vec::with_capacity(entries.len());
+    let bump = bumpalo::Bump::new();
+
+    let mut lengths: Vec<usize> = Vec::with_capacity_in(entries.len(), &bump);
+    let mut styles = Vec::with_capacity_in(entries.len(), &bump);
 
     let max_possible_columns = terminal_width / 3;
 
-    let mut layouts = Vec::new();
-    let mut cursors = Vec::new();
+    let mut layouts = bumpalo::collections::Vec::new_in(&bump);
+    let mut cursors = bumpalo::collections::Vec::new_in(&bump);
 
     for i in 2..=max_possible_columns {
-        layouts.push(core::iter::repeat(0).take(i).collect::<Vec<_>>());
+        layouts.push(bumpalo::collections::Vec::from_iter_in(
+            core::iter::repeat(0).take(i),
+            &bump,
+        ));
         // current position, increments left until we move to the next column
         let rows = (entries.len() + i - 1) / i;
+        cursors.push((0, rows, rows));
         if rows == 1 {
             break;
         }
-        cursors.push((0, rows, rows));
     }
 
     /*
@@ -336,10 +357,12 @@ pub fn write_grid<T: DirEntry>(
 
     let rows = cursors.last().map(|c| c.2).unwrap_or(entries.len());
 
-    let mut widths = lengths
-        .chunks(rows)
-        .map(|column| column.iter().max().copied().unwrap_or(1) + 2)
-        .collect::<Vec<_>>();
+    let mut widths = Vec::from_iter_in(
+        lengths
+            .chunks(rows)
+            .map(|column| column.iter().max().copied().unwrap_or(1) + 2),
+        &bump,
+    );
     if let Some(width) = widths.last_mut() {
         *width -= 2;
     }
@@ -381,14 +404,13 @@ pub fn write_grid<T: DirEntry>(
 }
 
 #[inline(never)]
-pub fn write_stream<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &mut App) {
+pub fn write_stream(
+    entries: &[(DirEntry, Option<Status>)],
+    dir: &veneer::Directory,
+    app: &mut App,
+) {
     if app.display_size_in_blocks {
-        print!(
-            app,
-            "total ",
-            entries.iter().map(DirEntry::blocks).sum::<u64>(),
-            "\n"
-        );
+        print_total_blocks(entries, app);
     }
 
     for e in entries.iter().take(entries.len() - 1) {
@@ -417,25 +439,24 @@ pub fn write_stream<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &m
 }
 
 #[inline(never)]
-pub fn write_single_column<T: DirEntry>(entries: &[T], dir: &veneer::Directory, app: &mut App) {
+pub fn write_single_column(
+    entries: &[(DirEntry, Option<Status>)],
+    dir: &veneer::Directory,
+    app: &mut App,
+) {
     if app.display_size_in_blocks {
-        print!(
-            app,
-            "total ",
-            entries.iter().map(DirEntry::blocks).sum::<u64>(),
-            "\n"
-        );
+        print_total_blocks(entries, app);
     }
 
     let inode_len = if app.print_inode {
-        let inode = entries.iter().map(DirEntry::inode).max().unwrap_or(0);
+        let inode = entries.iter().map(DirEntryExt::inode).max().unwrap_or(0);
         itoa::Buffer::new().format(inode).len()
     } else {
         0
     };
 
     let blocks_len = if app.display_size_in_blocks {
-        let blocks = entries.iter().map(DirEntry::blocks).max().unwrap_or(0);
+        let blocks = entries.iter().map(DirEntryExt::blocks).max().unwrap_or(0);
         itoa::Buffer::new().format(blocks).len()
     } else {
         0

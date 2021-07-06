@@ -6,10 +6,12 @@ edition = "2018"
 license = "GPL-3.0-or-later"
 
 [dependencies]
-veneer = {git = "https://github.com/saethlin/veneer"}
 libc = "0.2"
-itoa = {version = "0.4", default-features = false}
+itoa = { version = "0.4", default-features = false }
 unicode-segmentation = "1.8"
+bumpalo = { version = "3", features = ["collections"] }
+sc = "0.2"
+bitflags = "1"
 
 [profile.dev]
 opt-level = 1
@@ -19,3 +21,4 @@ panic = "abort"
 debug = 1
 lto = "fat"
 panic = "abort"
+opt-level = "s"

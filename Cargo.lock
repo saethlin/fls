@@ -9,13 +9,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
+name = "bumpalo"
+version = "3.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c59e7af012c713f529e7a3ee57ce9b31ddd858d4b512923602f74608b009631"
+
+[[package]]
 name = "fls"
 version = "0.1.0"
 dependencies = [
+ "bitflags",
+ "bumpalo",
  "itoa",
  "libc",
+ "sc",
  "unicode-segmentation",
- "veneer",
 ]
 
 [[package]]
@@ -41,13 +49,3 @@ name = "unicode-segmentation"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8895849a949e7845e06bd6dc1aa51731a103c42707010a5b591c0038fb73385b"
-
-[[package]]
-name = "veneer"
-version = "0.1.0"
-source = "git+https://github.com/saethlin/veneer#e443f40aeabfecd978e999c089d8cbcd780fb8e7"
-dependencies = [
- "bitflags",
- "libc",
- "sc",
-]

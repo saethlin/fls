@@ -1,6 +1,7 @@
 use crate::output::BufferedStdout;
+use crate::veneer;
+use crate::veneer::CStr;
 use alloc::vec::Vec;
-use veneer::CStr;
 
 pub struct App {
     pub print_inode: bool,
