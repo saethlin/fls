@@ -1,6 +1,26 @@
-Attempting to write a POSIX-compliant `ls` in Rust that's faster and prettier than GNU's.
+## fls
+A nearly POSIX-compliant `ls` that's faster and prettier than GNU's, and barely larger.
 
-[exa](https://github.com/ogham/exa) and [lsd](https://github.com/Peltoche/lsd) are both great `ls`-like Rust programs, but they're slower than what they intend to replace. This project is a demonstration that we can make things better and faster at the same time.
+[exa](https://github.com/ogham/exa) and [lsd](https://github.com/Peltoche/lsd) are both great `ls`-like Rust programs, but they're slower than the system `ls` and about 10x the code size. Plus you can't actually replace your `ls` with one of them, because some software relies on parsing the output of `ls`. But even as a user experience improvement, I think other projects tell the wrong story; modern software does not need to be larger or slower. It can be smaller and faster if we put in the effort.
+
+| ls -R / --color=never > /dev/null  | Wall time (s) |
+| ------------- | ------------- |
+| fls | 1.41 |
+| GNU ls  | 1.79  |
+| exa  | 4.59 |
+| lsd  | >1000  |
+
+## But How?
+
+`fls` addresses code size by being `#![no_std]`, which is important not because the standard library is in general large, but because the standard library's panic runtime is massive. The rest of the code size was trimmed down mostly by running the excellent tool [`cargo bloat`](https://crates.io/crates/cargo-bloat) to identify places to replace generics with runtime dispatch.
+
+In terms of speed, `fls` is faster because it doesn't use the POSIX interfaces for listing files. We directly call `getdents64` and parse the output, instead of dealing with all the calls and heap allocation of `read_dir`. And in addition to this, we get access to the directory entry type member, which lets us omit a number of `stat` calls, which can be expensive relative to other fs syscalls.
+
+## `--color=auto`
+
+`fls` has the same interpretation as GNU ls for `--color=always` and `--color=never`, but under `--color=auto`, `fls` will _only_ apply colors based on file extension and the information available from `getdents64`, which is optional. Thus, the coloring of `fls --color=auto` is unpredictable, but you get _some_ coloring of output without any expensive `stat` calls. `fls` was originally developed when I was working a lot on an HPC filesystem, and `ls --color=always` on large directories could take seconds to minutes. `fls --color=auto` provides the same colors in those directories, in the blink of an eye.
+
+## POSIX features:
 
 - [x] -A do not list implied `.` and `..`
 - [x] -C list entries in columns
