@@ -302,6 +302,7 @@ fn list_dir_contents(
 
     if app.recurse {
         app.out.push(b'\n');
+        let mut path = Vec::new();
         for e in entries
             .into_iter()
             .filter_map(|(e, status)| {
@@ -317,8 +318,10 @@ fn list_dir_contents(
             })
             .filter(|e| e.name.as_bytes() != b"..")
             .filter(|e| e.name.as_bytes() != b".")
+            .filter(|e| e.d_type == DType::DIR || e.d_type == DType::UNKNOWN)
         {
-            let mut path = name.as_bytes().to_vec();
+            path.clear();
+            path.extend(name.as_bytes());
             if path.last() != Some(&b'/') {
                 path.push(b'/');
             }

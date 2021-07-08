@@ -21,4 +21,3 @@ panic = "abort"
 debug = 1
 lto = "fat"
 panic = "abort"
-opt-level = "s"
