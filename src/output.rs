@@ -38,6 +38,29 @@ fn get_or_default(container: &[(libc::id_t, alloc::vec::Vec<u8>)], key: libc::id
 }
 
 #[inline(never)]
+fn print_rwx(app: &mut App, mode: u32, read_mask: u32, write_mask: u32, execute_mask: u32) {
+    use crate::Style::*;
+
+    if mode & read_mask > 0 {
+        app.out.style(YellowBold).push(b'r');
+    } else {
+        app.out.style(Gray).push(b'-');
+    }
+
+    if mode & write_mask > 0 {
+        app.out.style(RedBold).push(b'w');
+    } else {
+        app.out.style(Gray).push(b'-');
+    }
+
+    if mode & execute_mask > 0 {
+        app.out.style(GreenBold).push(b'x');
+    } else {
+        app.out.style(Gray).push(b'-');
+    }
+}
+
+#[inline(never)]
 pub fn write_details(
     entries: &[(DirEntry, Option<Status>)],
     dir: &veneer::Directory,
@@ -107,11 +130,10 @@ pub fn write_details(
 
     print!(app, "total ", blocks, "\n");
 
-    let mut buf = itoa::Buffer::new();
-    largest_size = buf.format(largest_size as u64).len();
-    largest_links = buf.format(largest_links as u64).len();
-    inode_len = buf.format(inode_len as u64).len();
-    blocks_len = buf.format(blocks_len as u64).len();
+    largest_size = largest_size.log10();
+    largest_links = largest_links.log10();
+    inode_len = inode_len.log10();
+    blocks_len = blocks_len.log10();
 
     let current_time = unsafe { libc::time(core::ptr::null_mut()) };
     let one_year = 365 * 24 * 60 * 60;
@@ -135,30 +157,6 @@ pub fn write_details(
                 .push(b' ');
         }
 
-        let print_readable = |app: &mut App, mask| {
-            if mode & mask > 0 {
-                print!(app, YellowBold, "r");
-            } else {
-                print!(app, Gray, "-");
-            }
-        };
-
-        let print_writable = |app: &mut App, mask| {
-            if mode & mask > 0 {
-                print!(app, RedBold, "w");
-            } else {
-                print!(app, Gray, "-");
-            }
-        };
-
-        let print_executable = |app: &mut App, mask| {
-            if mode & mask > 0 {
-                print!(app, GreenBold, "x");
-            } else {
-                print!(app, Gray, "-");
-            }
-        };
-
         print!(
             app,
             match mode & libc::S_IFMT {
@@ -168,17 +166,9 @@ pub fn write_details(
             }
         );
 
-        print_readable(app, S_IRUSR);
-        print_writable(app, S_IWUSR);
-        print_executable(app, S_IXUSR);
-
-        print_readable(app, S_IRGRP);
-        print_writable(app, S_IWGRP);
-        print_executable(app, S_IXGRP);
-
-        print_readable(app, S_IROTH);
-        print_writable(app, S_IWOTH);
-        print_executable(app, S_IXOTH);
+        print_rwx(app, mode, S_IRUSR, S_IWUSR, S_IXUSR);
+        print_rwx(app, mode, S_IRGRP, S_IWGRP, S_IXGRP);
+        print_rwx(app, mode, S_IROTH, S_IWOTH, S_IXOTH);
 
         app.out
             .push(b' ')
@@ -633,19 +623,28 @@ impl BufferedStdout {
     pub fn push(&mut self, b: u8) -> &mut Self {
         if let Some(out) = self.buf.get_mut(self.buf_used) {
             *out = b;
-            self.buf_used += 1;
         } else {
-            write_to_stdout(&self.buf);
-            self.buf_used = 1;
+            self.flush_to_stdout();
             self.buf[0] = b;
         }
+        self.buf_used += 1;
         self
     }
 
+    #[cold]
+    #[inline(never)]
+    fn flush_to_stdout(&mut self) {
+        write_to_stdout(&self.buf[..self.buf_used]);
+        self.buf_used = 0;
+    }
+
     pub fn write(&mut self, bytes: &[u8]) -> &mut Self {
-        for b in bytes {
-            self.push(*b);
+        if bytes.len() + self.buf_used >= self.buf.len() {
+            self.flush_to_stdout();
         }
+        let end = self.buf_used + bytes.len();
+        self.buf[self.buf_used..end].copy_from_slice(bytes);
+        self.buf_used += bytes.len();
         self
     }
 
@@ -691,7 +690,6 @@ impl Drop for BufferedStdout {
     }
 }
 
-#[inline(never)]
 fn write_to_stdout(bytes: &[u8]) {
     let mut bytes_written = 0;
     while bytes_written < bytes.len() {

@@ -1,6 +1,6 @@
 #![no_main]
 #![no_std]
-#![feature(alloc_error_handler)]
+#![feature(alloc_error_handler, int_log)]
 
 macro_rules! eprint {
     ($($args:tt)*) => {
@@ -11,9 +11,9 @@ macro_rules! eprint {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     if let Some(location) = info.location() {
-        let _ = eprint!("Panicked at {}:{}", location.file(), location.line());
+        let _ = eprint!("Panicked at {}:{}\n", location.file(), location.line());
     } else {
-        let _ = eprint!("Panicked, location unknown");
+        let _ = eprint!("Panicked, location unknown\n");
     }
     let _ = veneer::syscalls::kill(0, libc::SIGABRT);
     veneer::syscalls::exit(-1);
@@ -142,8 +142,8 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
     }
 
     if !files.is_empty() {
+        let dir = veneer::Directory::open(CStr::from_bytes(b".\0")).unwrap();
         if need_details {
-            let dir = veneer::Directory::open(CStr::from_bytes(b".\0")).unwrap();
             for e in &mut files {
                 let status = if app.follow_symlinks == cli::FollowSymlinks::Always {
                     syscalls::fstatat(dir.raw_fd(), e.name())
@@ -164,15 +164,15 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                     }
                 }
             }
+        }
 
-            sort_entries(&mut files, &app);
+        sort_entries(&mut files, &app);
 
-            match app.display_mode {
-                DisplayMode::Grid(width) => write_grid(&files, &dir, &mut app, width),
-                DisplayMode::Long => write_details(&files, &dir, &mut app),
-                DisplayMode::SingleColumn => write_single_column(&files, &dir, &mut app),
-                DisplayMode::Stream => write_stream(&files, &dir, &mut app),
-            }
+        match app.display_mode {
+            DisplayMode::Grid(width) => write_grid(&files, &dir, &mut app, width),
+            DisplayMode::Long => write_details(&files, &dir, &mut app),
+            DisplayMode::SingleColumn => write_single_column(&files, &dir, &mut app),
+            DisplayMode::Stream => write_stream(&files, &dir, &mut app),
         }
     }
 
@@ -337,11 +337,11 @@ fn list_dir_contents(
 
 #[derive(Default, Clone)]
 pub struct Status {
-    pub links: libc::nlink_t,
+    pub links: u64,
     pub mode: libc::mode_t,
     pub size: libc::off_t,
-    pub blocks: libc::blkcnt64_t,
-    pub block_size: libc::blksize_t,
+    pub blocks: i64,
+    pub block_size: i64,
     pub uid: libc::uid_t,
     pub gid: libc::gid_t,
     pub time: libc::time_t,

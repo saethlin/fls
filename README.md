@@ -1,5 +1,5 @@
 ## fls
-A nearly POSIX-compliant `ls` that's faster and prettier than GNU's, and barely larger.
+A nearly POSIX-compliant `ls` that's smaller, faster, and prettier than GNU's.
 
 [exa](https://github.com/ogham/exa) and [lsd](https://github.com/Peltoche/lsd) are both great `ls`-like Rust programs, but they're slower than the system `ls` and about 10x the code size. Plus you can't actually replace your `ls` with one of them, because some software relies on parsing the output of `ls`. But even as a user experience improvement, I think other projects tell the wrong story; modern software does not need to be larger or slower. It can be smaller and faster if we put in the effort.
 

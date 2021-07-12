@@ -288,11 +288,11 @@ impl App {
     pub fn convert_status(&self, status: libc::stat64) -> crate::Status {
         use TimeField::*;
         crate::Status {
-            links: status.st_nlink,
+            links: status.st_nlink as u64,
             mode: status.st_mode,
             size: status.st_size,
             blocks: status.st_blocks,
-            block_size: status.st_blksize,
+            block_size: status.st_blksize as i64,
             uid: status.st_uid,
             gid: status.st_gid,
             inode: status.st_ino,

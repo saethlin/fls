@@ -55,9 +55,25 @@ bitflags::bitflags! {
 }
 
 #[inline]
+#[cfg(target_arch = "x86_64")]
 pub fn open(path: CStr, flags: OpenFlags, mode: OpenMode) -> Result<c_int, Error> {
     unsafe { syscall!(OPEN, path.as_ptr(), flags.bits(), mode.bits()) }
         .to_result_and(|n| n as c_int)
+}
+
+#[inline]
+#[cfg(target_arch = "aarch64")]
+pub fn open(path: CStr, flags: OpenFlags, mode: OpenMode) -> Result<c_int, Error> {
+    unsafe {
+        syscall!(
+            OPENAT,
+            libc::AT_FDCWD,
+            path.as_ptr(),
+            flags.bits(),
+            mode.bits()
+        )
+    }
+    .to_result_and(|n| n as c_int)
 }
 
 #[inline]
@@ -66,10 +82,23 @@ pub fn close(fd: c_int) -> Result<(), Error> {
 }
 
 #[inline]
+#[cfg(target_arch = "x86_64")]
 pub fn stat(path: CStr) -> Result<libc::stat, Error> {
     unsafe {
         let mut status: libc::stat = mem::zeroed();
         syscall!(STAT, path.as_ptr(), &mut status as *mut libc::stat).to_result_with(status)
+    }
+}
+
+#[inline]
+#[cfg(target_arch = "aarch64")]
+pub fn stat(path: CStr) -> Result<libc::stat, Error> {
+    unsafe {
+        let fd = open(path, OpenFlags::RDONLY, OpenMode::empty())?;
+        let mut status: libc::stat = mem::zeroed();
+        let res = syscall!(FSTAT, fd, &mut status as *mut libc::stat).to_result_with(status);
+        let _ = close(fd);
+        res
     }
 }
 
