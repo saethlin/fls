@@ -586,7 +586,7 @@ impl BufferedStdout {
 
     #[cold]
     #[inline(never)]
-    fn flush_to_stdout(&mut self) {
+    pub fn flush_to_stdout(&mut self) {
         write_to_stdout(&self.buf[..self.buf_used]);
         self.buf_used = 0;
     }

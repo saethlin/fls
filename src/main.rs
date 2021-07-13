@@ -329,6 +329,7 @@ fn list_dir_contents(
             path.push(0);
             let path = CStr::from_bytes(&path);
             if let Ok(dir) = veneer::Directory::open(path) {
+                app.out.flush_to_stdout();
                 list_dir_contents(multiple_args, need_details, path, &dir, app);
             }
         }
