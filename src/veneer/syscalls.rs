@@ -4,6 +4,11 @@ use libc::c_int;
 use sc::syscall;
 
 #[inline]
+pub fn read(fd: c_int, bytes: &mut [u8]) -> Result<usize, Error> {
+    unsafe { syscall!(READ, fd, bytes.as_ptr(), bytes.len()) }.usize_result()
+}
+
+#[inline]
 pub fn write(fd: c_int, bytes: &[u8]) -> Result<usize, Error> {
     unsafe { syscall!(WRITE, fd, bytes.as_ptr(), bytes.len()) }.usize_result()
 }
@@ -99,6 +104,14 @@ pub fn stat(path: CStr) -> Result<libc::stat, Error> {
         let res = syscall!(FSTAT, fd, &mut status as *mut libc::stat).to_result_with(status);
         let _ = close(fd);
         res
+    }
+}
+
+#[inline]
+pub fn fstat(fd: c_int) -> Result<libc::stat, Error> {
+    unsafe {
+        let mut status: libc::stat = mem::zeroed();
+        syscall!(FSTAT, fd, &mut status as *mut libc::stat).to_result_with(status)
     }
 }
 

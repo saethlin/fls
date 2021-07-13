@@ -25,8 +25,11 @@ pub struct App {
     pub color: Color,
 
     pub args: Vec<CStr<'static>>,
-    pub uid_names: Vec<(u32, Vec<u8>)>,
-    pub gid_names: Vec<(u32, Vec<u8>)>,
+
+    etc_passwd: &'static [u8],
+    uid_names: Vec<(u32, (usize, usize))>,
+    etc_group: &'static [u8],
+    gid_names: Vec<(u32, (usize, usize))>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -137,6 +140,8 @@ impl App {
             args,
             uid_names: Vec::new(),
             gid_names: Vec::new(),
+            etc_passwd: &[],
+            etc_group: &[],
         };
 
         for arg in named_arguments.iter().map(CStr::as_bytes) {
@@ -279,10 +284,83 @@ impl App {
         };
 
         if !args_valid {
-            Err(veneer::Error(-1))
-        } else {
-            Ok(app)
+            return Err(veneer::Error(-1));
         }
+
+        use crate::veneer::syscalls::*;
+        // Initialize name and group id lookup
+        let fd = open(
+            CStr::from_bytes(&b"/etc/passwd\0"[..]),
+            OpenFlags::RDONLY,
+            OpenMode::empty(),
+        )?;
+        let len = fstat(fd)?.st_size as usize;
+        let mut contents = alloc::vec![0; len];
+        read(fd, &mut contents)?;
+        close(fd)?;
+        app.etc_passwd = alloc::boxed::Box::leak(contents.into_boxed_slice());
+
+        let mut offset = 0;
+        for line in app.etc_passwd.split(|b| *b == b'\n') {
+            if line.is_empty() {
+                offset += line.len() + 1;
+                continue;
+            }
+            let mut it = line.split(|b| *b == b':');
+            let name = it.next().unwrap();
+            let _passwd = it.next().unwrap();
+            let uid = lexical::parse(it.next().unwrap()).unwrap();
+
+            app.uid_names.push((uid, (offset, offset + name.len())));
+
+            offset += line.len() + 1;
+        }
+
+        // Initialize name and group id lookup
+        let fd = open(
+            CStr::from_bytes(&b"/etc/group\0"[..]),
+            OpenFlags::RDONLY,
+            OpenMode::empty(),
+        )?;
+        let len = fstat(fd)?.st_size as usize;
+        let mut contents = alloc::vec![0; len];
+        read(fd, &mut contents)?;
+        close(fd)?;
+
+        app.etc_group = alloc::boxed::Box::leak(contents.into_boxed_slice());
+
+        let mut offset = 0;
+        for line in app.etc_group.split(|b| *b == b'\n') {
+            if line.is_empty() {
+                offset += line.len() + 1;
+                continue;
+            }
+            let mut it = line.split(|b| *b == b':');
+            let name = it.next().unwrap().to_vec();
+            let _passwd = it.next().unwrap();
+            let gid = lexical::parse(it.next().unwrap()).unwrap();
+
+            app.gid_names.push((gid, (offset, offset + name.len())));
+            offset += line.len() + 1;
+        }
+
+        Ok(app)
+    }
+
+    pub fn getpwuid(&self, uid: u32) -> &'static [u8] {
+        self.uid_names
+            .iter()
+            .find(|(id, _)| *id == uid)
+            .map(|(_id, (start, end))| &self.etc_passwd[*start..*end])
+            .unwrap_or_default()
+    }
+
+    pub fn getgrgid(&self, gid: u32) -> &'static [u8] {
+        self.gid_names
+            .iter()
+            .find(|(id, _)| *id == gid)
+            .map(|(_id, (start, end))| &self.etc_group[*start..*end])
+            .unwrap_or_default()
     }
 
     pub fn convert_status(&self, status: libc::stat64) -> crate::Status {

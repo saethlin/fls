@@ -43,18 +43,18 @@ impl core::fmt::Write for Stderr {
     }
 }
 
+extern crate alloc;
+use alloc::vec::Vec;
+
 // Temporariliy pasting veneer's code into this crate until veneer is more done
 mod veneer;
 
 #[macro_use]
-mod output;
-
-extern crate alloc;
-use alloc::vec::Vec;
-
-pub mod cli;
+pub mod output;
+mod cli;
 mod directory;
 mod error;
+mod id;
 mod style;
 
 use cli::{DisplayMode, ShowAll, SortField};

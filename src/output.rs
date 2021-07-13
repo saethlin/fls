@@ -8,6 +8,7 @@ use bumpalo::collections::Vec;
 use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR};
 use unicode_segmentation::UnicodeSegmentation;
 
+#[macro_export]
 macro_rules! print {
     ($app:expr, $($item:expr),+) => {
         {
@@ -27,14 +28,6 @@ macro_rules! error {
         }
         let _ = crate::veneer::syscalls::write(2, &err[..]);
     }};
-}
-
-fn get_or_default(container: &[(libc::id_t, alloc::vec::Vec<u8>)], key: libc::id_t) -> &[u8] {
-    container
-        .iter()
-        .find(|&it| it.0 == key)
-        .map(|v| &v.1[..])
-        .unwrap_or_default()
 }
 
 #[inline(never)]
@@ -68,24 +61,6 @@ pub fn write_details(
 ) {
     use Style::*;
 
-    let bump = bumpalo::Bump::new();
-
-    let get_name = |id: libc::uid_t| unsafe {
-        core::ptr::NonNull::new(libc::getpwuid(id)).map(|pw| {
-            let mut name = Vec::new_in(&bump);
-            name.extend_from_slice(veneer::CStr::from_ptr(pw.as_ref().pw_name).as_bytes());
-            name
-        })
-    };
-
-    let get_group = |id: libc::gid_t| unsafe {
-        core::ptr::NonNull::new(libc::getgrgid(id)).map(|gr| {
-            let mut name = Vec::new_in(&bump);
-            name.extend_from_slice(veneer::CStr::from_ptr(gr.as_ref().gr_name).as_bytes());
-            name
-        })
-    };
-
     let mut longest_name_len = 1;
     let mut longest_group_len = 1;
     let mut largest_size = 0;
@@ -95,30 +70,12 @@ pub fn write_details(
     let mut blocks_len = 0;
 
     for status in entries.iter().filter_map(|e| e.1.as_ref()) {
-        if app.print_owner && !app.uid_names.iter().any(|(id, _)| *id == status.uid) {
-            let name = if app.convert_id_to_name {
-                get_name(status.uid)
-            } else {
-                None
-            }
-            .unwrap_or_else(|| {
-                Vec::from_iter_in(itoa::Buffer::new().format(status.uid as u64).bytes(), &bump)
-            });
-            longest_name_len = longest_name_len.max(name.len());
-            app.uid_names.push((status.uid, name.to_vec()));
+        if app.print_owner {
+            longest_name_len = longest_name_len.max(app.getpwuid(status.uid).len())
         }
 
-        if app.print_group && !app.gid_names.iter().any(|(id, _)| *id == status.gid) {
-            let group = if app.convert_id_to_name {
-                get_group(status.gid)
-            } else {
-                None
-            }
-            .unwrap_or_else(|| {
-                Vec::from_iter_in(itoa::Buffer::new().format(status.gid as u64).bytes(), &bump)
-            });
-            longest_group_len = longest_group_len.max(group.len());
-            app.gid_names.push((status.gid, group.to_vec()));
+        if app.print_group {
+            longest_group_len = longest_group_len.max(app.getgrgid(status.gid).len());
         }
 
         largest_size = largest_size.max(status.size as usize);
@@ -176,7 +133,7 @@ pub fn write_details(
             .align_right(status.links, largest_links);
 
         if app.print_owner {
-            let name = get_or_default(&app.uid_names, status.uid);
+            let name = app.getpwuid(status.uid);
             app.out
                 .push(b' ')
                 .style(YellowBold)
@@ -184,7 +141,7 @@ pub fn write_details(
         }
 
         if app.print_group {
-            let group = get_or_default(&app.gid_names, status.gid);
+            let group = app.getgrgid(status.gid);
             app.out
                 .push(b' ')
                 .style(Style::YellowBold)
@@ -614,10 +571,6 @@ impl BufferedStdout {
             style: Style::Reset,
             is_terminal: false,
         }
-    }
-
-    pub fn is_terminal(&self) -> bool {
-        self.is_terminal
     }
 
     pub fn push(&mut self, b: u8) -> &mut Self {
