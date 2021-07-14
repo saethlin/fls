@@ -54,7 +54,6 @@ pub mod output;
 mod cli;
 mod directory;
 mod error;
-mod id;
 mod style;
 
 use cli::{DisplayMode, ShowAll, SortField};
