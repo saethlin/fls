@@ -162,54 +162,7 @@ impl<'a> DirEntryExt for (veneer::directory::DirEntry<'a>, Option<crate::Status>
     }
 }
 
-static IMAGE: &[&[u8]] = &[
-    b"png", b"jpeg", b"jpg", b"gif", b"bmp", b"tiff", b"tif", b"ppm", b"pgm", b"pbm", b"pnm",
-    b"webp", b"raw", b"arw", b"svg", b"stl", b"eps", b"dvi", b"ps", b"cbr", b"jpf", b"cbz", b"xpm",
-    b"ico", b"cr2", b"orf", b"nef", b"heif",
-];
-
-static VIDEO: &[&[u8]] = &[
-    b"avi", b"flv", b"m2v", b"m4v", b"mkv", b"mov", b"mp4", b"mpeg", b"mpg", b"ogm", b"ogv",
-    b"vob", b"wmv", b"webm", b"m2ts", b"heic",
-];
-
-static MUSIC: &[&[u8]] = &[b"aac", b"m4a", b"mp3", b"ogg", b"wma", b"mka", b"opus"];
-
-static LOSSLESS: &[&[u8]] = &[b"alac", b"ape", b"flac", b"wav"];
-
-static CRYPTO: &[&[u8]] = &[
-    b"asc",
-    b"enc",
-    b"gpg",
-    b"pgp",
-    b"sig",
-    b"signature",
-    b"pfx",
-    b"p12",
-];
-
-static DOCUMENT: &[&[u8]] = &[
-    b"djvu", b"doc", b"docx", b"dvi", b"eml", b"eps", b"fotd", b"key", b"keynote", b"numbers",
-    b"odp", b"odt", b"pages", b"pdf", b"ppt", b"pptx", b"rtf", b"xls", b"xlsx",
-];
-
-static COMPRESSED: &[&[u8]] = &[
-    b"zip", b"tar", b"Z", b"z", b"gz", b"bz2", b"a", b"ar", b"7z", b"iso", b"dmg", b"tc", b"rar",
-    b"par", b"tgz", b"xz", b"txz", b"lz", b"tlz", b"lzma", b"deb", b"rpm", b"zst",
-];
-
-static TEMP: &[&[u8]] = &[b"tmp", b"swp", b"swo", b"swn", b"bak", b"bk"];
-
-static STYLES: &[(&[&[u8]], Style)] = &[
-    (TEMP, Style::Fixed(244)),
-    (IMAGE, Style::Fixed(133)),
-    (VIDEO, Style::Fixed(135)),
-    (MUSIC, Style::Fixed(92)),
-    (LOSSLESS, Style::Fixed(93)),
-    (CRYPTO, Style::Fixed(109)),
-    (DOCUMENT, Style::Fixed(105)),
-    (COMPRESSED, Style::Red),
-];
+include!(concat!(env!("OUT_DIR"), "/codegen.rs"));
 
 #[inline(never)]
 pub fn extension_style(name: &[u8]) -> Style {
@@ -220,12 +173,11 @@ pub fn extension_style(name: &[u8]) -> Style {
         None => return Style::White,
         Some(ext) => ext,
     };
-    for (extensions, style) in STYLES {
-        if extensions.contains(&extension) {
-            return *style;
-        }
+    if let Ok(i) = EXTENSION_STYLES.binary_search_by(|probe| probe.0.cmp(extension)) {
+        EXTENSION_STYLES[i].1
+    } else {
+        Style::White
     }
-    Style::White
 }
 
 fn style_from_status(

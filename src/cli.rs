@@ -1,4 +1,5 @@
-use crate::output::BufferedStdout;
+use crate::atoi;
+use crate::output::OutputBuffer;
 use crate::veneer;
 use crate::veneer::CStr;
 use alloc::vec::Vec;
@@ -18,7 +19,7 @@ pub struct App {
     pub sort_field: Option<SortField>,
     pub time_field: TimeField,
     pub list_directory_contents: bool,
-    pub out: BufferedStdout,
+    pub out: OutputBuffer,
     pub convert_id_to_name: bool,
     pub print_owner: bool,
     pub print_group: bool,
@@ -136,7 +137,7 @@ impl App {
             print_owner: true,
             print_group: true,
             color: Color::Always,
-            out: BufferedStdout::terminal(),
+            out: OutputBuffer::terminal(),
             args,
             uid_names: Vec::new(),
             gid_names: Vec::new(),
@@ -155,14 +156,14 @@ impl App {
                         b"auto" => app.color = Color::Auto,
                         b"never" => app.color = Color::Never,
                         _ => {
-                            error!(b"invalid argument \'", value, b"\' for \'", name, b"'\n");
+                            error!("invalid argument \'", value, "\' for \'", name, "'\n");
                         }
                     }
                 } else {
-                    error!(b"unrecognized option \'", arg, b"\'\n");
+                    error!("unrecognized option \'", arg, "\'\n");
                 }
             } else {
-                error!(b"unrecognized option \'", arg, b"\'\n");
+                error!("unrecognized option \'", arg, "\'\n");
             }
         }
 
@@ -263,7 +264,7 @@ impl App {
                     _ => app.display_mode = DisplayMode::SingleColumn,
                 },
                 s => {
-                    error!(b"invalid option \'", &[s], b"\'\n");
+                    error!("invalid option \'", s, "\'\n");
                     args_valid = false;
                 }
             }
@@ -278,9 +279,9 @@ impl App {
         }
 
         app.out = if terminal_width.is_some() {
-            BufferedStdout::terminal()
+            OutputBuffer::terminal()
         } else {
-            BufferedStdout::file()
+            OutputBuffer::pipe()
         };
 
         if !args_valid {
@@ -309,7 +310,7 @@ impl App {
             let mut it = line.split(|b| *b == b':');
             let name = it.next().unwrap();
             let _passwd = it.next().unwrap();
-            let uid = lexical::parse(it.next().unwrap()).unwrap();
+            let uid = atoi(it.next().unwrap()) as u32;
 
             app.uid_names.push((uid, (offset, offset + name.len())));
 
@@ -338,7 +339,7 @@ impl App {
             let mut it = line.split(|b| *b == b':');
             let name = it.next().unwrap().to_vec();
             let _passwd = it.next().unwrap();
-            let gid = lexical::parse(it.next().unwrap()).unwrap();
+            let gid = atoi(it.next().unwrap()) as u32;
 
             app.gid_names.push((gid, (offset, offset + name.len())));
             offset += line.len() + 1;

@@ -2,18 +2,29 @@
 #![no_std]
 #![feature(alloc_error_handler, int_log)]
 
-macro_rules! eprint {
-    ($($args:tt)*) => {
-        core::fmt::write(&mut Stderr, format_args!($($args)*)).unwrap();
+macro_rules! error {
+    ($($item:expr),+) => {
+        {
+            use crate::output::Writable;
+            let mut buf = crate::output::OutputBuffer::stderr();
+            $($item.write(&mut buf);)*
+            buf.flush();
+        }
     };
 }
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     if let Some(location) = info.location() {
-        let _ = eprint!("Panicked at {}:{}\n", location.file(), location.line());
+        error!(
+            "Panicked at ",
+            location.file(),
+            ":",
+            location.line() as u64,
+            "\n"
+        );
     } else {
-        let _ = eprint!("Panicked, location unknown\n");
+        let _ = error!("Panicked, location unknown\n");
     }
     let _ = veneer::syscalls::kill(0, libc::SIGABRT);
     veneer::syscalls::exit(-1);
@@ -22,9 +33,10 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 
 #[alloc_error_handler]
 fn alloc_error(layout: core::alloc::Layout) -> ! {
-    eprint!(
-        "Unable to allocate, size: {}\n",
-        itoa::Buffer::new().format(layout.size())
+    error!(
+        "Unable to allocate, size: ",
+        crate::utils::Buffer::new().format(layout.size() as u64),
+        "\n"
     );
     let _ = veneer::syscalls::kill(0, libc::SIGABRT);
     veneer::syscalls::exit(-1);
@@ -33,15 +45,6 @@ fn alloc_error(layout: core::alloc::Layout) -> ! {
 
 #[global_allocator]
 static ALLOC: veneer::Allocator = veneer::Allocator;
-
-pub struct Stderr;
-
-impl core::fmt::Write for Stderr {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        let _ = crate::syscalls::write(libc::STDERR_FILENO, s.as_bytes());
-        Ok(())
-    }
-}
 
 extern crate alloc;
 use alloc::vec::Vec;
@@ -55,6 +58,9 @@ mod cli;
 mod directory;
 mod error;
 mod style;
+mod utils;
+
+use utils::*;
 
 use cli::{DisplayMode, ShowAll, SortField};
 use directory::DirEntryExt;
@@ -88,6 +94,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
 
     let mut dirs = Vec::new();
     let mut files = Vec::new();
+    let mut pool = crate::output::Pool::default();
 
     if app.list_directory_contents {
         for arg in app.args.clone() {
@@ -103,15 +110,15 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                 )),
                 Err(_) => {
                     if let Err(e) = veneer::syscalls::stat(arg) {
-                        let mut buf = itoa::Buffer::new();
+                        let mut buf = crate::utils::Buffer::new();
                         error!(
-                            b"OS error ",
-                            buf.format(e.0).as_bytes(),
-                            b": ",
+                            "OS error ",
+                            buf.format(e.0 as u64),
+                            ": ",
                             e.msg().as_bytes(),
-                            b" \"",
+                            " \"",
                             arg.as_bytes(),
-                            b"\""
+                            "\""
                         );
                         LAST_ERROR.store(e.0, Relaxed);
                     } else {
@@ -168,7 +175,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
         sort_entries(&mut files, &app);
 
         match app.display_mode {
-            DisplayMode::Grid(width) => write_grid(&files, &dir, &mut app, width),
+            DisplayMode::Grid(width) => write_grid(&files, &dir, &mut app, width, &mut pool),
             DisplayMode::Long => write_details(&files, &dir, &mut app),
             DisplayMode::SingleColumn => write_single_column(&files, &dir, &mut app),
             DisplayMode::Stream => write_stream(&files, &dir, &mut app),
@@ -180,7 +187,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
     }
 
     for (n, (name, dir)) in dirs.iter().enumerate() {
-        list_dir_contents(multiple_args, need_details, *name, dir, &mut app);
+        list_dir_contents(multiple_args, need_details, *name, dir, &mut app, &mut pool);
         // When recursing the recursion handles newlines, if not we need to check if we're on the
         // last and print a newline
         if !app.recurse && (n != dirs.len() - 1) {
@@ -224,6 +231,7 @@ fn list_dir_contents(
     name: CStr,
     dir: &veneer::Directory,
     app: &mut cli::App,
+    pool: &mut Pool,
 ) {
     let contents = match dir.read() {
         Ok(c) => c,
@@ -293,7 +301,7 @@ fn list_dir_contents(
     sort_entries(&mut entries, app);
 
     match app.display_mode {
-        DisplayMode::Grid(width) => write_grid(&entries, dir, app, width),
+        DisplayMode::Grid(width) => write_grid(&entries, dir, app, width, pool),
         DisplayMode::Long => write_details(&entries, dir, app),
         DisplayMode::SingleColumn => write_single_column(&entries, dir, app),
         DisplayMode::Stream => write_stream(&entries, dir, app),
@@ -328,8 +336,8 @@ fn list_dir_contents(
             path.push(0);
             let path = CStr::from_bytes(&path);
             if let Ok(dir) = veneer::Directory::open(path) {
-                app.out.flush_to_stdout();
-                list_dir_contents(multiple_args, need_details, path, &dir, app);
+                app.out.flush();
+                list_dir_contents(multiple_args, need_details, path, &dir, app, pool);
             }
         }
     }

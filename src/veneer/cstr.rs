@@ -11,8 +11,12 @@ impl<'a> CStr<'a> {
     /// This function must be called with a pointer to a null-terminated array of bytes
     #[inline]
     pub unsafe fn from_ptr<'b>(ptr: *const libc::c_char) -> CStr<'b> {
+        let mut len = 0;
+        while *ptr.add(len) != 0 {
+            len += 1;
+        }
         CStr {
-            bytes: core::slice::from_raw_parts(ptr as *const u8, libc::strlen(ptr) + 1),
+            bytes: core::slice::from_raw_parts(ptr as *const u8, len + 1),
         }
     }
 

@@ -7,10 +7,7 @@ license = "GPL-3.0-or-later"
 
 [dependencies]
 libc = "0.2"
-itoa = { version = "0.4", default-features = false }
-lexical = { version = "5", default-features = false }
 unicode-segmentation = "1.8"
-bumpalo = { version = "3", features = ["collections"] }
 sc = "0.2"
 bitflags = "1"
 

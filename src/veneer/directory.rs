@@ -37,9 +37,25 @@ impl<'a> Directory {
                 core::mem::align_of::<libc::dirent64>(),
             );
             let mut ptr = alloc(layout);
-            let mut bytes_used =
-                syscalls::getdents64(self.fd, core::slice::from_raw_parts_mut(ptr, layout.size()))?;
-            let mut previous_bytes_used = 0;
+
+            // First, read using the first half of the allocation
+            let mut previous_bytes_used = syscalls::getdents64(
+                self.fd,
+                core::slice::from_raw_parts_mut(ptr, layout.size() / 2),
+            )?;
+            let mut bytes_used = previous_bytes_used;
+
+            // If we read something, try using the rest of the allocation
+            if previous_bytes_used > 0 {
+                bytes_used += syscalls::getdents64(
+                    self.fd,
+                    core::slice::from_raw_parts_mut(
+                        ptr.add(previous_bytes_used),
+                        layout.size() - previous_bytes_used,
+                    ),
+                )?;
+            }
+            // Then, if we read something on the second time, start reallocating.
 
             // Must run this loop until getdents64 returns no new entries
             // Yes, it looks silly but some filesystems (at least sshfs) rely on this behavior

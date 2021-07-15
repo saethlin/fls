@@ -1,9 +1,8 @@
 use crate::directory::DirEntryExt;
-use crate::veneer;
-use crate::veneer::syscalls;
-use crate::veneer::DirEntry;
+use crate::utils::Buffer;
+use crate::veneer::{syscalls, CStr, DirEntry, Directory};
 use crate::{cli::App, Status, Style};
-use bumpalo::collections::Vec;
+use alloc::vec::Vec;
 
 use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR};
 use unicode_segmentation::UnicodeSegmentation;
@@ -14,19 +13,6 @@ macro_rules! print {
         {
         use crate::output::Writable;
         $($item.write(&mut $app.out);)*
-    }};
-}
-
-macro_rules! error {
-    ($($item:expr),+) => {
-        {
-        let mut err = alloc::vec::Vec::new();
-        err.extend_from_slice(b"fls: ");
-        $(err.extend($item);)*
-        if err.last() != Some(&b'\n') {
-            err.push(b'\n');
-        }
-        let _ = crate::veneer::syscalls::write(2, &err[..]);
     }};
 }
 
@@ -54,11 +40,7 @@ fn print_rwx(app: &mut App, mode: u32, read_mask: u32, write_mask: u32, execute_
 }
 
 #[inline(never)]
-pub fn write_details(
-    entries: &[(DirEntry, Option<Status>)],
-    dir: &veneer::Directory,
-    app: &mut App,
-) {
+pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, app: &mut App) {
     use Style::*;
 
     let mut longest_name_len = 1;
@@ -182,7 +164,7 @@ pub fn write_details(
         // BrokenLink.
         if (mode & libc::S_IFMT) == libc::S_IFLNK
             && app.color == crate::cli::Color::Always
-            && veneer::syscalls::faccessat(dir.raw_fd(), e.name, libc::F_OK).is_err()
+            && syscalls::faccessat(dir.raw_fd(), e.name, libc::F_OK).is_err()
         {
             style = Style::RedBold;
         }
@@ -190,7 +172,7 @@ pub fn write_details(
 
         if (mode & libc::S_IFMT) == libc::S_IFLNK {
             let mut buf = [0u8; 1024];
-            if let Ok(linked_to) = veneer::syscalls::readlinkat(dir.raw_fd(), e.name, &mut buf) {
+            if let Ok(linked_to) = syscalls::readlinkat(dir.raw_fd(), e.name, &mut buf) {
                 print!(app, Style::Gray, " -> ", Style::White, linked_to);
             }
         }
@@ -212,12 +194,22 @@ fn print_total_blocks(entries: &[(DirEntry, Option<Status>)], app: &mut App) {
     );
 }
 
+#[derive(Default)]
+pub struct Pool {
+    pub lengths: Vec<usize>,
+    pub styles: Vec<(Style, Option<u8>)>,
+    pub layouts: Vec<usize>,
+    pub cursors: Vec<(usize, usize, usize)>,
+    pub widths: Vec<usize>,
+}
+
 #[inline(never)]
 pub fn write_grid(
     entries: &[(DirEntry, Option<Status>)],
-    dir: &veneer::Directory,
+    dir: &Directory,
     app: &mut App,
     terminal_width: usize,
+    pool: &mut Pool,
 ) {
     if app.display_size_in_blocks {
         print_total_blocks(entries, app);
@@ -229,7 +221,7 @@ pub fn write_grid(
 
     let inode_len = if app.print_inode {
         let inode = entries.iter().map(|e| e.inode()).max().unwrap_or(0);
-        itoa::Buffer::new().format(inode as u64).len()
+        Buffer::new().format(inode as u64).len()
     } else {
         0
     };
@@ -241,26 +233,37 @@ pub fn write_grid(
             .map(|status| status.blocks)
             .max()
             .unwrap_or(0);
-        itoa::Buffer::new().format(blocks as u64).len()
+        Buffer::new().format(blocks as u64).len()
     } else {
         0
     };
 
-    let bump = bumpalo::Bump::new();
+    // We want to determine the maximum number of columns we can use to lay out these entries.
+    // So we simulate arrangingi the entries in every possible layout at the same time. Notionally,
+    // we keep a Vec of column widths (widest name in each column) for every number of columns, and
+    // when we add an entry to a column which makes the sum of all columns for that layout too
+    // large, we discard it.
 
-    let mut lengths: Vec<usize> = Vec::with_capacity_in(entries.len(), &bump);
-    let mut styles = Vec::with_capacity_in(entries.len(), &bump);
+    let sum_to = |a| a * (a + 1) / 2;
+
+    let mut lengths = core::mem::take(&mut pool.lengths);
+    lengths.clear();
+    lengths.reserve(entries.len());
+    let mut styles = core::mem::take(&mut pool.styles);
+    styles.clear();
+    styles.reserve(entries.len());
 
     let max_possible_columns = terminal_width / 3;
 
-    let mut layouts = bumpalo::collections::Vec::new_in(&bump);
-    let mut cursors = bumpalo::collections::Vec::new_in(&bump);
+    let mut layouts = core::mem::take(&mut pool.layouts);
+    layouts.clear();
+    layouts.reserve(sum_to(max_possible_columns) - 1);
+    let mut cursors = core::mem::take(&mut pool.cursors);
+    cursors.clear();
+    cursors.reserve(max_possible_columns - 1);
 
     for i in 2..=max_possible_columns {
-        layouts.push(bumpalo::collections::Vec::from_iter_in(
-            core::iter::repeat(0).take(i),
-            &bump,
-        ));
+        layouts.extend(core::iter::repeat(0).take(i));
         // current position, increments left until we move to the next column
         let rows = (entries.len() + i - 1) / i;
         cursors.push((0, rows, rows));
@@ -285,13 +288,20 @@ pub fn write_grid(
         styles.push(style);
 
         for i in (0..cursors.len()).rev() {
-            let current = &mut layouts[i][cursors[i].0];
+            let layout_start = sum_to(i + 1) - 1;
+
+            let cols = i + 2;
+            let current = &mut layouts[layout_start + cursors[i].0];
+            // TODO: Do this sum continuously instead of repeating the whole sum on each iteration
             *current = (*current).max(len);
-            if layouts[i].iter().copied().sum::<usize>() + 2 * (layouts[i].len() - 1)
-                > terminal_width
-            {
+            let this_layout_width = layouts[layout_start..layout_start + i + 2]
+                .iter()
+                .copied()
+                .sum::<usize>()
+                + 2 * (cols - 1);
+
+            if this_layout_width > terminal_width {
                 cursors.pop();
-                layouts.pop();
             } else {
                 cursors[i].1 -= 1;
                 if cursors[i].1 == 0 {
@@ -304,11 +314,12 @@ pub fn write_grid(
 
     let rows = cursors.last().map(|c| c.2).unwrap_or(entries.len());
 
-    let mut widths = Vec::from_iter_in(
+    let mut widths = core::mem::take(&mut pool.widths);
+    widths.clear();
+    widths.extend(
         lengths
             .chunks(rows)
             .map(|column| column.iter().max().copied().unwrap_or(1) + 2),
-        &bump,
     );
     if let Some(width) = widths.last_mut() {
         *width -= 2;
@@ -348,14 +359,16 @@ pub fn write_grid(
         }
         app.out.style(Style::Reset).push(b'\n');
     }
+
+    pool.lengths = lengths;
+    pool.styles = styles;
+    pool.widths = widths;
+    pool.cursors = cursors;
+    pool.layouts = layouts;
 }
 
 #[inline(never)]
-pub fn write_stream(
-    entries: &[(DirEntry, Option<Status>)],
-    dir: &veneer::Directory,
-    app: &mut App,
-) {
+pub fn write_stream(entries: &[(DirEntry, Option<Status>)], dir: &Directory, app: &mut App) {
     if app.display_size_in_blocks {
         print_total_blocks(entries, app);
     }
@@ -386,25 +399,21 @@ pub fn write_stream(
 }
 
 #[inline(never)]
-pub fn write_single_column(
-    entries: &[(DirEntry, Option<Status>)],
-    dir: &veneer::Directory,
-    app: &mut App,
-) {
+pub fn write_single_column(entries: &[(DirEntry, Option<Status>)], dir: &Directory, app: &mut App) {
     if app.display_size_in_blocks {
         print_total_blocks(entries, app);
     }
 
     let inode_len = if app.print_inode {
         let inode = entries.iter().map(DirEntryExt::inode).max().unwrap_or(0);
-        itoa::Buffer::new().format(inode).len()
+        Buffer::new().format(inode).len()
     } else {
         0
     };
 
     let blocks_len = if app.display_size_in_blocks {
         let blocks = entries.iter().map(DirEntryExt::blocks).max().unwrap_or(0);
-        itoa::Buffer::new().format(blocks).len()
+        Buffer::new().format(blocks).len()
     } else {
         0
     };
@@ -447,11 +456,11 @@ fn len_utf8(bytes: &[u8]) -> usize {
 }
 
 pub trait Writable {
-    fn write(&self, out: &mut BufferedStdout);
+    fn write(&self, out: &mut OutputBuffer);
 }
 
 impl Writable for &[u8] {
-    fn write(&self, out: &mut BufferedStdout) {
+    fn write(&self, out: &mut OutputBuffer) {
         out.write(self);
     }
 }
@@ -460,7 +469,7 @@ macro_rules! array_impl {
     ($($N:expr)+) => {
         $(
             impl Writable for &[u8; $N] {
-                fn write(&self, out: &mut BufferedStdout) {
+                fn write(&self, out: &mut OutputBuffer) {
                     out.write(*self);
                 }
             }
@@ -476,51 +485,52 @@ array_impl! {
 }
 
 impl Writable for &str {
-    fn write(&self, out: &mut BufferedStdout) {
+    fn write(&self, out: &mut OutputBuffer) {
         out.write(self.as_bytes());
     }
 }
 
-impl<'a> Writable for veneer::CStr<'a> {
-    fn write(&self, out: &mut BufferedStdout) {
+impl<'a> Writable for CStr<'a> {
+    fn write(&self, out: &mut OutputBuffer) {
         out.write(self.as_bytes());
     }
 }
 
 impl Writable for crate::Style {
-    fn write(&self, out: &mut BufferedStdout) {
+    fn write(&self, out: &mut OutputBuffer) {
         out.style(*self);
     }
 }
 
 impl Writable for u8 {
-    fn write(&self, out: &mut BufferedStdout) {
+    fn write(&self, out: &mut OutputBuffer) {
         out.push(*self);
     }
 }
 
 impl Writable for i64 {
-    fn write(&self, out: &mut BufferedStdout) {
-        let mut buf = itoa::Buffer::new();
-        out.write(buf.format(*self).as_bytes());
+    fn write(&self, out: &mut OutputBuffer) {
+        use core::convert::TryFrom;
+        let mut buf = Buffer::new();
+        out.write(buf.format(u64::try_from(*self).unwrap()));
     }
 }
 
 impl Writable for i32 {
-    fn write(&self, out: &mut BufferedStdout) {
+    fn write(&self, out: &mut OutputBuffer) {
         (*self as i64).write(out)
     }
 }
 
 impl Writable for u64 {
-    fn write(&self, out: &mut BufferedStdout) {
-        let mut buf = itoa::Buffer::new();
-        out.write(buf.format(*self).as_bytes());
+    fn write(&self, out: &mut OutputBuffer) {
+        let mut buf = Buffer::new();
+        out.write(buf.format(*self));
     }
 }
 
 impl Writable for usize {
-    fn write(&self, out: &mut BufferedStdout) {
+    fn write(&self, out: &mut OutputBuffer) {
         (*self as u64).write(out)
     }
 }
@@ -530,7 +540,7 @@ where
     T: Writable,
     U: Writable,
 {
-    fn write(&self, out: &mut BufferedStdout) {
+    fn write(&self, out: &mut OutputBuffer) {
         self.0.write(out);
         self.1.write(out);
     }
@@ -540,36 +550,49 @@ impl<T> Writable for Option<T>
 where
     T: Writable,
 {
-    fn write(&self, out: &mut BufferedStdout) {
+    fn write(&self, out: &mut OutputBuffer) {
         if let Some(s) = self.as_ref() {
             s.write(out);
         }
     }
 }
 
-pub struct BufferedStdout {
+pub struct OutputBuffer {
     buf: [u8; 4096],
     buf_used: usize,
     style: Style,
     is_terminal: bool,
+    fd: i32,
 }
 
-impl BufferedStdout {
+impl OutputBuffer {
     pub fn terminal() -> Self {
         Self {
             buf: [0u8; 4096],
             buf_used: 0,
             style: Style::Reset,
             is_terminal: true,
+            fd: 1,
         }
     }
 
-    pub fn file() -> Self {
+    pub fn pipe() -> Self {
         Self {
             buf: [0u8; 4096],
             buf_used: 0,
             style: Style::Reset,
             is_terminal: false,
+            fd: 1,
+        }
+    }
+
+    pub fn stderr() -> Self {
+        Self {
+            buf: [0u8; 4096],
+            buf_used: 0,
+            style: Style::Reset,
+            is_terminal: false,
+            fd: 2,
         }
     }
 
@@ -577,7 +600,7 @@ impl BufferedStdout {
         if let Some(out) = self.buf.get_mut(self.buf_used) {
             *out = b;
         } else {
-            self.flush_to_stdout();
+            self.flush();
             self.buf[0] = b;
         }
         self.buf_used += 1;
@@ -586,14 +609,14 @@ impl BufferedStdout {
 
     #[cold]
     #[inline(never)]
-    pub fn flush_to_stdout(&mut self) {
-        write_to_stdout(&self.buf[..self.buf_used]);
+    pub fn flush(&mut self) {
+        write_all(&self.buf[..self.buf_used], self.fd);
         self.buf_used = 0;
     }
 
     pub fn write(&mut self, bytes: &[u8]) -> &mut Self {
         if bytes.len() + self.buf_used >= self.buf.len() {
-            self.flush_to_stdout();
+            self.flush();
         }
         let end = self.buf_used + bytes.len();
         self.buf[self.buf_used..end].copy_from_slice(bytes);
@@ -620,37 +643,36 @@ impl BufferedStdout {
     }
 
     pub fn align_right(&mut self, value: u64, width: usize) -> &mut Self {
-        let mut buf = itoa::Buffer::new();
+        let mut buf = Buffer::new();
         let formatted = buf.format(value);
         if formatted.len() < width {
             for _ in 0..width - formatted.len() {
                 self.push(b' ');
             }
         }
-        self.write(formatted.as_bytes());
+        self.write(formatted);
         self
     }
 }
 
-impl Drop for BufferedStdout {
+impl Drop for OutputBuffer {
     fn drop(&mut self) {
         self.style(Style::Reset);
         // Panicking in a Drop is probably a bad idea, so we prefer to be slightly wrong
         // in the case that our index has become invalid
         if let Some(buf) = self.buf.get(..self.buf_used) {
-            write_to_stdout(buf);
+            write_all(buf, self.fd);
         }
     }
 }
 
-fn write_to_stdout(bytes: &[u8]) {
+fn write_all(bytes: &[u8], fd: i32) {
     let mut bytes_written = 0;
     while bytes_written < bytes.len() {
-        bytes_written += syscalls::write(libc::STDOUT_FILENO, &bytes[bytes_written..])
-            .unwrap_or_else(|_| {
-                syscalls::exit(-1);
-                0
-            });
+        bytes_written += syscalls::write(fd, &bytes[bytes_written..]).unwrap_or_else(|_| {
+            syscalls::exit(-1);
+            0
+        });
     }
 }
 
@@ -664,7 +686,7 @@ fn month_abbr(month: libc::c_int) -> &'static [u8] {
 
 // This code was translated almost directly from the implementation in GNU ls
 //
-pub fn vercmp(s1_cstr: veneer::CStr, s2_cstr: veneer::CStr) -> core::cmp::Ordering {
+pub fn vercmp(s1_cstr: CStr, s2_cstr: CStr) -> core::cmp::Ordering {
     use core::cmp::Ordering;
     let s1 = s1_cstr.as_bytes();
     let s2 = s2_cstr.as_bytes();
