@@ -43,9 +43,8 @@ impl EntryType {
             (BrokenLink, Suffixes::All) => (Some(RedBold), Some(b'@')),
             (BrokenLink, _) => (Some(RedBold), None),
             (Fifo, Suffixes::All) => (Some(YellowBold), Some(b'|')),
-            (Fifo, _) => (Some(YellowBold), None),
             (Socket, _) => (Some(MagentaBold), None),
-            (Other, _) => (Some(YellowBold), None),
+            (Fifo | Other, _) => (Some(YellowBold), None),
         }
     }
 }

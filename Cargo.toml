@@ -12,7 +12,6 @@ sc = "0.2"
 bitflags = "1"
 
 [profile.dev]
-opt-level = 1
 panic = "abort"
 
 [profile.release]

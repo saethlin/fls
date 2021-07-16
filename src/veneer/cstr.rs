@@ -16,7 +16,7 @@ impl<'a> CStr<'a> {
             len += 1;
         }
         CStr {
-            bytes: core::slice::from_raw_parts(ptr as *const u8, len + 1),
+            bytes: core::slice::from_raw_parts(ptr.cast::<u8>(), len + 1),
         }
     }
 
@@ -36,7 +36,7 @@ impl<'a> CStr<'a> {
 
     #[inline]
     pub fn get(&self, i: usize) -> Option<u8> {
-        self.bytes.get(i).cloned()
+        self.bytes.get(i).copied()
     }
 
     #[inline]

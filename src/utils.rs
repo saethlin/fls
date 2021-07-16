@@ -3,7 +3,7 @@ use core::{ptr, slice};
 pub fn atoi(digits: &[u8]) -> u64 {
     let mut num = 0;
     for &c in digits {
-        num = num * 10 + (c - b'0') as u64;
+        num = num * 10 + u64::from(c - b'0');
     }
     num
 }
@@ -13,7 +13,7 @@ pub fn atoi(digits: &[u8]) -> u64 {
 
 const U64_MAX_LEN: usize = 20;
 
-const DEC_DIGITS_LUT: &'static [u8] = b"\
+const DEC_DIGITS_LUT: &[u8] = b"\
       0001020304050607080910111213141516171819\
       2021222324252627282930313233343536373839\
       4041424344454647484950515253545556575859\

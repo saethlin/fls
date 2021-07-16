@@ -171,6 +171,7 @@ pub struct DirEntry<'a> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum DType {
     UNKNOWN = 0,
     FIFO = 1,

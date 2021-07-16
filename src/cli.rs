@@ -1,7 +1,6 @@
-use crate::atoi;
 use crate::output::OutputBuffer;
-use crate::veneer;
-use crate::veneer::CStr;
+use crate::utils::atoi;
+use crate::veneer::{syscalls::*, CStr, Error};
 use alloc::vec::Vec;
 
 pub struct App {
@@ -136,8 +135,8 @@ impl App {
             convert_id_to_name: true,
             print_owner: true,
             print_group: true,
-            color: Color::Always,
-            out: OutputBuffer::terminal(),
+            color: Color::Auto,
+            out: OutputBuffer::to_fd(1),
             args,
             uid_names: Vec::new(),
             gid_names: Vec::new(),
@@ -270,7 +269,7 @@ impl App {
             }
         }
 
-        let terminal_width = veneer::syscalls::winsize().ok().map(|d| d.ws_col as usize);
+        let terminal_width = winsize().ok().map(|d| d.ws_col as usize);
 
         match (terminal_width, app.display_mode) {
             (Some(width), DisplayMode::Grid(_)) => app.display_mode = DisplayMode::Grid(width),
@@ -278,71 +277,75 @@ impl App {
             _ => {}
         }
 
-        app.out = if terminal_width.is_some() {
-            OutputBuffer::terminal()
-        } else {
-            OutputBuffer::pipe()
-        };
+        if terminal_width.is_none() && app.color == Color::Auto {
+            app.color = Color::Never;
+        }
+        if app.color == Color::Never {
+            app.out.color = false;
+        }
 
         if !args_valid {
-            return Err(veneer::Error(-1));
-        }
-
-        use crate::veneer::syscalls::*;
-        // Initialize name and group id lookup
-        let fd = open(
-            CStr::from_bytes(&b"/etc/passwd\0"[..]),
-            OpenFlags::RDONLY,
-            OpenMode::empty(),
-        )?;
-        let len = fstat(fd)?.st_size as usize;
-        let mut contents = alloc::vec![0; len];
-        read(fd, &mut contents)?;
-        close(fd)?;
-        app.etc_passwd = alloc::boxed::Box::leak(contents.into_boxed_slice());
-
-        let mut offset = 0;
-        for line in app.etc_passwd.split(|b| *b == b'\n') {
-            if line.is_empty() {
-                offset += line.len() + 1;
-                continue;
-            }
-            let mut it = line.split(|b| *b == b':');
-            let name = it.next().unwrap();
-            let _passwd = it.next().unwrap();
-            let uid = atoi(it.next().unwrap()) as u32;
-
-            app.uid_names.push((uid, (offset, offset + name.len())));
-
-            offset += line.len() + 1;
+            return Err(Error(-1));
         }
 
         // Initialize name and group id lookup
-        let fd = open(
-            CStr::from_bytes(&b"/etc/group\0"[..]),
-            OpenFlags::RDONLY,
-            OpenMode::empty(),
-        )?;
-        let len = fstat(fd)?.st_size as usize;
-        let mut contents = alloc::vec![0; len];
-        read(fd, &mut contents)?;
-        close(fd)?;
+        {
+            let fd = open(
+                CStr::from_bytes(&b"/etc/passwd\0"[..]),
+                OpenFlags::RDONLY,
+                OpenMode::empty(),
+            )?;
+            let len = fstat(fd)?.st_size as usize;
+            let mut contents = alloc::vec![0; len];
+            read(fd, &mut contents)?;
+            close(fd)?;
+            app.etc_passwd = alloc::boxed::Box::leak(contents.into_boxed_slice());
 
-        app.etc_group = alloc::boxed::Box::leak(contents.into_boxed_slice());
+            let mut offset = 0;
+            for line in app.etc_passwd.split(|b| *b == b'\n') {
+                if line.is_empty() {
+                    offset += line.len() + 1;
+                    continue;
+                }
+                let mut it = line.split(|b| *b == b':');
+                let name = it.next().unwrap();
+                let _passwd = it.next().unwrap();
+                let uid = atoi(it.next().unwrap()) as u32;
 
-        let mut offset = 0;
-        for line in app.etc_group.split(|b| *b == b'\n') {
-            if line.is_empty() {
+                app.uid_names.push((uid, (offset, offset + name.len())));
+
                 offset += line.len() + 1;
-                continue;
             }
-            let mut it = line.split(|b| *b == b':');
-            let name = it.next().unwrap().to_vec();
-            let _passwd = it.next().unwrap();
-            let gid = atoi(it.next().unwrap()) as u32;
+        }
 
-            app.gid_names.push((gid, (offset, offset + name.len())));
-            offset += line.len() + 1;
+        {
+            // Initialize name and group id lookup
+            let fd = open(
+                CStr::from_bytes(&b"/etc/group\0"[..]),
+                OpenFlags::RDONLY,
+                OpenMode::empty(),
+            )?;
+            let len = fstat(fd)?.st_size as usize;
+            let mut contents = alloc::vec![0; len];
+            read(fd, &mut contents)?;
+            close(fd)?;
+
+            app.etc_group = alloc::boxed::Box::leak(contents.into_boxed_slice());
+
+            let mut offset = 0;
+            for line in app.etc_group.split(|b| *b == b'\n') {
+                if line.is_empty() {
+                    offset += line.len() + 1;
+                    continue;
+                }
+                let mut it = line.split(|b| *b == b':');
+                let name = it.next().unwrap().to_vec();
+                let _passwd = it.next().unwrap();
+                let gid = atoi(it.next().unwrap()) as u32;
+
+                app.gid_names.push((gid, (offset, offset + name.len())));
+                offset += line.len() + 1;
+            }
         }
 
         Ok(app)
@@ -367,11 +370,11 @@ impl App {
     pub fn convert_status(&self, status: libc::stat64) -> crate::Status {
         use TimeField::*;
         crate::Status {
-            links: status.st_nlink as u64,
+            links: status.st_nlink,
             mode: status.st_mode,
             size: status.st_size,
             blocks: status.st_blocks,
-            block_size: status.st_blksize as i64,
+            block_size: status.st_blksize,
             uid: status.st_uid,
             gid: status.st_gid,
             inode: status.st_ino,

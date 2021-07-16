@@ -53,7 +53,7 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
 
     for status in entries.iter().filter_map(|e| e.1.as_ref()) {
         if app.print_owner {
-            longest_name_len = longest_name_len.max(app.getpwuid(status.uid).len())
+            longest_name_len = longest_name_len.max(app.getpwuid(status.uid).len());
         }
 
         if app.print_group {
@@ -64,22 +64,23 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
         largest_links = largest_links.max(status.links as usize);
         inode_len = inode_len.max(status.inode as usize);
         blocks_len = blocks_len.max(status.blocks as usize);
-        blocks += status.blocks * status.block_size / 8192;
+        blocks += status.blocks * status.block_size as i64 / 8192;
     }
 
     print!(app, "total ", blocks, "\n");
 
-    largest_size = largest_size.log10();
-    largest_links = largest_links.log10();
-    inode_len = inode_len.log10();
-    blocks_len = blocks_len.log10();
+    let mut buf = Buffer::new();
+    largest_size = buf.format(largest_size as u64).len();
+    largest_links = buf.format(largest_links as u64).len();
+    inode_len = buf.format(inode_len as u64).len();
+    blocks_len = buf.format(blocks_len as u64).len();
 
     let current_time = unsafe { libc::time(core::ptr::null_mut()) };
     let one_year = 365 * 24 * 60 * 60;
 
     for direntry in entries {
         let e = &direntry.0;
-        let status = direntry.1.clone().unwrap_or(Status::default());
+        let status = direntry.1.clone().unwrap_or_default();
         let mode = status.mode;
 
         if app.print_inode {
@@ -112,14 +113,14 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
         app.out
             .push(b' ')
             .style(Style::White)
-            .align_right(status.links, largest_links);
+            .align_right(status.links as u64, largest_links);
 
         if app.print_owner {
             let name = app.getpwuid(status.uid);
             app.out
                 .push(b' ')
                 .style(YellowBold)
-                .align_left(&name, longest_name_len);
+                .align_left(name, longest_name_len);
         }
 
         if app.print_group {
@@ -127,7 +128,7 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
             app.out
                 .push(b' ')
                 .style(Style::YellowBold)
-                .align_left(&group, longest_group_len);
+                .align_left(group, longest_group_len);
         }
 
         app.out
@@ -189,7 +190,7 @@ fn print_total_blocks(entries: &[(DirEntry, Option<Status>)], app: &mut App) {
             .iter()
             .filter_map(|(_, s)| s.as_ref())
             .map(|status| status.blocks)
-            .sum::<i64>(),
+            .sum::<i64>() as u64,
         "\n"
     );
 }
@@ -561,38 +562,18 @@ pub struct OutputBuffer {
     buf: [u8; 4096],
     buf_used: usize,
     style: Style,
-    is_terminal: bool,
     fd: i32,
+    pub color: bool,
 }
 
 impl OutputBuffer {
-    pub fn terminal() -> Self {
+    pub fn to_fd(fd: libc::c_int) -> Self {
         Self {
             buf: [0u8; 4096],
             buf_used: 0,
             style: Style::Reset,
-            is_terminal: true,
-            fd: 1,
-        }
-    }
-
-    pub fn pipe() -> Self {
-        Self {
-            buf: [0u8; 4096],
-            buf_used: 0,
-            style: Style::Reset,
-            is_terminal: false,
-            fd: 1,
-        }
-    }
-
-    pub fn stderr() -> Self {
-        Self {
-            buf: [0u8; 4096],
-            buf_used: 0,
-            style: Style::Reset,
-            is_terminal: false,
-            fd: 2,
+            color: true,
+            fd,
         }
     }
 
@@ -625,7 +606,10 @@ impl OutputBuffer {
     }
 
     pub fn style(&mut self, style: Style) -> &mut Self {
-        if self.is_terminal && self.style != style {
+        if !self.color {
+            return self;
+        };
+        if self.style != style {
             self.write(style.to_bytes());
             self.style = style;
         }

@@ -1,12 +1,18 @@
 #![no_main]
 #![no_std]
-#![feature(alloc_error_handler, int_log)]
+#![feature(alloc_error_handler)]
+#![allow(
+    clippy::enum_glob_use,
+    clippy::option_if_let_else,
+    clippy::unseparated_literal_suffix,
+    clippy::too_many_lines
+)]
 
 macro_rules! error {
     ($($item:expr),+) => {
         {
             use crate::output::Writable;
-            let mut buf = crate::output::OutputBuffer::stderr();
+            let mut buf = crate::output::OutputBuffer::to_fd(2);
             $($item.write(&mut buf);)*
             buf.flush();
         }
@@ -60,8 +66,6 @@ mod error;
 mod style;
 mod utils;
 
-use utils::*;
-
 use cli::{DisplayMode, ShowAll, SortField};
 use directory::DirEntryExt;
 use output::*;
@@ -74,9 +78,9 @@ static LAST_ERROR: AtomicI32 = AtomicI32::new(0);
 
 #[no_mangle]
 unsafe extern "C" fn main(argc: isize, argv: *const *const libc::c_char) -> i32 {
-    let args = (0..argc).map(|i| CStr::from_ptr(*argv.offset(i))).collect();
+    let arguments = (0..argc).map(|i| CStr::from_ptr(*argv.offset(i))).collect();
 
-    match run(args) {
+    match run(arguments) {
         Ok(()) => LAST_ERROR.load(Relaxed),
         Err(e) => e.0 as i32,
     }
@@ -129,7 +133,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                                 d_type: DType::UNKNOWN,
                             },
                             None,
-                        ))
+                        ));
                     }
                 }
             }
@@ -143,7 +147,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                     d_type: DType::UNKNOWN,
                 },
                 None,
-            ))
+            ));
         }
     }
 
@@ -345,11 +349,11 @@ fn list_dir_contents(
 
 #[derive(Default, Clone)]
 pub struct Status {
-    pub links: u64,
+    pub links: libc::nlink_t,
     pub mode: libc::mode_t,
     pub size: libc::off_t,
-    pub blocks: i64,
-    pub block_size: i64,
+    pub blocks: libc::blkcnt64_t,
+    pub block_size: libc::blksize_t,
     pub uid: libc::uid_t,
     pub gid: libc::gid_t,
     pub time: libc::time_t,
