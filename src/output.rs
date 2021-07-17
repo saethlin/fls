@@ -519,6 +519,12 @@ impl Writable for i32 {
     }
 }
 
+impl Writable for u32 {
+    fn write(&self, out: &mut OutputBuffer) {
+        (*self as u64).write(out)
+    }
+}
+
 impl Writable for u64 {
     fn write(&self, out: &mut OutputBuffer) {
         let mut buf = Buffer::new();
@@ -528,7 +534,7 @@ impl Writable for u64 {
 
 impl Writable for usize {
     fn write(&self, out: &mut OutputBuffer) {
-        (*self as u64).write(out)
+        (*self as u64).write(out);
     }
 }
 
@@ -605,7 +611,7 @@ impl OutputBuffer {
             return self;
         };
         if self.style != style {
-            self.write(style.to_bytes());
+            style.write_to(self);
             self.style = style;
         }
         self

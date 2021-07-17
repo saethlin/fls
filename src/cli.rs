@@ -350,8 +350,7 @@ impl App {
             time: match self.time_field {
                 Accessed => status.st_atime,
                 Created => status.st_ctime,
-                Modified => status.st_mtime,
-                StatusModified => status.st_mtime,
+                Modified | StatusModified => status.st_mtime,
             },
         }
     }

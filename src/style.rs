@@ -1,3 +1,5 @@
+use crate::output::{OutputBuffer, Writable};
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Style {
     Reset,
@@ -20,30 +22,38 @@ pub enum Style {
 }
 
 impl Style {
-    pub fn to_bytes(self) -> &'static [u8] {
+    #[inline(never)]
+    pub fn write_to(self, out: &mut OutputBuffer) {
         use Style::*;
-        match self {
-            Reset => b"\x1B[m",
-            Red => b"\x1B[0;31m",
-            Green => b"\x1B[0;32m",
-            Yellow => b"\x1B[0;33m",
-            Blue => b"\x1B[0;34m",
-            Magenta => b"\x1B[0;35m",
-            Cyan => b"\x1B[0;36m",
-            White => b"\x1B[0;37m",
-            Gray => b"\x1B[0;38;5;244m",
-            RedBold => b"\x1B[1;31m",
-            GreenBold => b"\x1B[1;32m",
-            YellowBold => b"\x1B[1;33m",
-            BlueBold => b"\x1B[1;34m",
-            MagentaBold => b"\x1B[1;35m",
-            CyanBold => b"\x1B[1;36m",
-            WhiteBold => b"\x1B[1;37m",
-            Fixed(c) => FIXED_CODES[c as usize],
-        }
+        let bytes = match self {
+            Reset => &b"\x1B[m"[..],
+            Red => &b"\x1B[0;31m"[..],
+            Green => &b"\x1B[0;32m"[..],
+            Yellow => &b"\x1B[0;33m"[..],
+            Blue => &b"\x1B[0;34m"[..],
+            Magenta => &b"\x1B[0;35m"[..],
+            Cyan => &b"\x1B[0;36m"[..],
+            White => &b"\x1B[0;37m"[..],
+            Gray => &b"\x1B[0;38;5;244m"[..],
+            RedBold => &b"\x1B[1;31m"[..],
+            GreenBold => &b"\x1B[1;32m"[..],
+            YellowBold => &b"\x1B[1;33m"[..],
+            BlueBold => &b"\x1B[1;34m"[..],
+            MagentaBold => &b"\x1B[1;35m"[..],
+            CyanBold => &b"\x1B[1;36m"[..],
+            WhiteBold => &b"\x1B[1;37m"[..],
+            Fixed(c) => {
+                out.write(&b"\x1B[0;38;5;"[..]);
+                u64::from(c).write(out);
+                out.push(b'm');
+                return;
+            }
+        };
+        out.write(bytes);
     }
 }
 
+/*
 static FIXED_CODES: &[&[u8]] = &[
     b"\x1B[0;38;5;0m",
     b"\x1B[0;38;5;1m",
@@ -302,3 +312,4 @@ static FIXED_CODES: &[&[u8]] = &[
     b"\x1B[0;38;5;254m",
     b"\x1B[0;38;5;255m",
 ];
+*/

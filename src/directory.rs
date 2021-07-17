@@ -92,6 +92,9 @@ impl<'a> DirEntryExt for (veneer::directory::DirEntry<'a>, Option<crate::Status>
         // Deduce the correct DirEntry type
         let entry_type = if let Some(status) = &self.1 {
             entry_type_from_status(status)
+        } else if app.color == Color::Never && app.suffixes == crate::cli::Suffixes::None {
+            // DO nothing extra if no colors and no suffixes are required
+            Regular
         } else if app.color == Color::Auto {
             match self.0.d_type {
                 DType::DIR => Directory,

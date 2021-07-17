@@ -32,35 +32,33 @@ impl Buffer {
         }
     }
 
-    pub fn format(&mut self, n: u64) -> &[u8] {
+    pub fn format(&mut self, mut n: u64) -> &[u8] {
         let buf = &mut self.bytes;
-        let mut curr = buf.len() as isize;
+        let mut curr = buf.len();
         let buf_ptr = buf.as_mut_ptr();
         let lut_ptr = DEC_DIGITS_LUT.as_ptr();
 
         unsafe {
-            let mut n = n as isize; // possibly reduce 64bit math
-
             // decode 2 more chars, if > 2 chars
             while n >= 100 {
                 let d1 = (n % 100) << 1;
                 n /= 100;
                 curr -= 2;
-                ptr::copy_nonoverlapping(lut_ptr.offset(d1), buf_ptr.offset(curr), 2);
+                ptr::copy_nonoverlapping(lut_ptr.add(d1 as usize), buf_ptr.add(curr), 2);
             }
 
             // decode last 1 or 2 chars
             if n < 10 {
                 curr -= 1;
-                *buf_ptr.offset(curr) = (n as u8) + b'0';
+                *buf_ptr.add(curr) = (n as u8) + b'0';
             } else {
                 let d1 = n << 1;
                 curr -= 2;
-                ptr::copy_nonoverlapping(lut_ptr.offset(d1), buf_ptr.offset(curr), 2);
+                ptr::copy_nonoverlapping(lut_ptr.add(d1 as usize), buf_ptr.add(curr), 2);
             }
         }
 
-        let len = buf.len() - curr as usize;
-        unsafe { slice::from_raw_parts(buf_ptr.offset(curr), len) }
+        let len = buf.len() - curr;
+        unsafe { slice::from_raw_parts(buf_ptr.add(curr), len) }
     }
 }

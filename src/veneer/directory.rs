@@ -116,7 +116,7 @@ impl Drop for DirectoryContents {
 
 pub struct IterDir<'a> {
     contents: &'a [u8],
-    offset: isize,
+    offset: usize,
 }
 
 impl<'a> Iterator for IterDir<'a> {
@@ -124,17 +124,21 @@ impl<'a> Iterator for IterDir<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        unsafe {
-            if self.offset < self.contents.len() as isize {
-                let raw_dirent =
-                    &*(self.contents.as_ptr().offset(self.offset) as *const libc::dirent64);
+        if self.offset < self.contents.len() {
+            unsafe {
+                let start = self.contents.as_ptr().add(self.offset);
+                let inode = start.cast::<u64>().read_unaligned();
+                //let offset = start.add(8).cast::<u64>().read_unaligned();
+                let reclen = start.add(16).cast::<u16>().read_unaligned();
+                let d_type = start.add(18).read_unaligned();
+                let name_ptr = start.add(19);
 
-                self.offset += raw_dirent.d_reclen as isize;
+                self.offset += reclen as usize;
 
                 Some(DirEntry {
-                    inode: raw_dirent.d_ino,
-                    name: CStr::from_ptr(raw_dirent.d_name.as_ptr()),
-                    d_type: match raw_dirent.d_type {
+                    inode: inode as u64,
+                    name: CStr::from_ptr(name_ptr.cast()),
+                    d_type: match d_type {
                         0 => DType::UNKNOWN,
                         1 => DType::FIFO,
                         2 => DType::CHR,
@@ -146,9 +150,9 @@ impl<'a> Iterator for IterDir<'a> {
                         _ => DType::UNKNOWN,
                     },
                 })
-            } else {
-                None
             }
+        } else {
+            None
         }
     }
 
@@ -205,10 +209,10 @@ mod tests {
 
         for (libc, ven) in libc_dirents.iter().zip(contents.iter()) {
             unsafe {
-                assert_eq!(CStr::from_ptr(libc.d_name.as_ptr()), ven.name());
+                assert_eq!(CStr::from_ptr(libc.d_name.as_ptr().cast()), ven.name);
             }
-            assert_eq!(libc.d_ino, ven.inode());
-            assert_eq!(libc.d_type, ven.d_type() as u8);
+            assert_eq!(libc.d_ino, ven.inode);
+            assert_eq!(libc.d_type, ven.d_type as u8);
         }
     }
 }

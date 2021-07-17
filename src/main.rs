@@ -62,7 +62,6 @@ mod veneer;
 pub mod output;
 mod cli;
 mod directory;
-mod error;
 mod style;
 mod utils;
 
@@ -71,17 +70,14 @@ use directory::DirEntryExt;
 use output::*;
 use style::Style;
 
-use core::sync::atomic::{AtomicI32, Ordering::Relaxed};
 use veneer::{directory::DType, syscalls, CStr, Error};
 
-static LAST_ERROR: AtomicI32 = AtomicI32::new(0);
-
 #[no_mangle]
-unsafe extern "C" fn main(argc: isize, argv: *const *const libc::c_char) -> i32 {
+unsafe extern "C" fn main(argc: isize, argv: *const *const u8) -> i32 {
     let arguments = (0..argc).map(|i| CStr::from_ptr(*argv.offset(i))).collect();
 
     match run(arguments) {
-        Ok(()) => LAST_ERROR.load(Relaxed),
+        Ok(()) => 0,
         Err(e) => e.0 as i32,
     }
 }
@@ -114,18 +110,8 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                     None,
                 )),
                 Err(_) => {
-                    if let Err(e) = veneer::syscalls::stat(arg) {
-                        let mut buf = crate::utils::Buffer::new();
-                        error!(
-                            "OS error ",
-                            buf.format(e.0 as u64),
-                            ": ",
-                            e.msg().as_bytes(),
-                            " \"",
-                            arg.as_bytes(),
-                            "\""
-                        );
-                        LAST_ERROR.store(e.0, Relaxed);
+                    if let Err(err) = veneer::syscalls::stat(arg) {
+                        access_error(&arg, err);
                     } else {
                         files.push((
                             crate::veneer::directory::DirEntry {
@@ -165,13 +151,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
                 match status {
                     Ok(s) => e.1 = Some(s),
                     Err(err) => {
-                        error!(
-                            b"Unable to access '",
-                            e.name().as_bytes(),
-                            b"': ",
-                            err.msg().as_bytes()
-                        );
-                        LAST_ERROR.store(err.0, Relaxed);
+                        access_error(&e.name(), err);
                     }
                 }
             }
@@ -254,13 +234,7 @@ fn list_dir_contents(
     let contents = match dir.read() {
         Ok(c) => c,
         Err(err) => {
-            error!(
-                b"Unable to access '",
-                path.as_slice(),
-                b"': ",
-                err.msg().as_bytes()
-            );
-            LAST_ERROR.store(err.0, Relaxed);
+            access_error(path, err);
             return;
         }
     };
@@ -289,7 +263,7 @@ fn list_dir_contents(
     }
 
     if multiple_args || app.recurse {
-        app.out.write(path.as_slice()).write(b":\n");
+        app.out.write(&path[..path.len() - 1]).write(b":\n");
     }
 
     if need_details {
@@ -303,14 +277,7 @@ fn list_dir_contents(
             match status {
                 Ok(s) => e.1 = Some(s),
                 Err(err) => {
-                    error!(
-                        b"Unable to access '",
-                        e.name().as_bytes(),
-                        b"': ",
-                        err.msg().as_bytes(),
-                        b"\n"
-                    );
-                    LAST_ERROR.store(err.0, Relaxed);
+                    access_error(&e.name(), err);
                 }
             }
         }
@@ -353,12 +320,25 @@ fn list_dir_contents(
             }
             path.extend(e.name.as_bytes());
             path.push(0);
-            if let Ok(dir) = veneer::Directory::open(CStr::from_bytes(path)) {
-                let status = syscalls::fstat(dir.raw_fd()).unwrap();
-                if !stack.contains(&(status.st_dev, status.st_ino)) {
-                    stack.push((status.st_dev, status.st_ino));
-                    list_dir_contents(stack, multiple_args, need_details, path, &dir, app, pool);
-                    stack.pop();
+            match veneer::Directory::open(CStr::from_bytes(path)) {
+                Ok(dir) => {
+                    let status = syscalls::fstat(dir.raw_fd()).unwrap();
+                    if !stack.contains(&(status.st_dev, status.st_ino)) {
+                        stack.push((status.st_dev, status.st_ino));
+                        list_dir_contents(
+                            stack,
+                            multiple_args,
+                            need_details,
+                            path,
+                            &dir,
+                            app,
+                            pool,
+                        );
+                        stack.pop();
+                    }
+                }
+                Err(err) => {
+                    access_error(&path[..path.len() - 1], err);
                 }
             }
             while path.last() != Some(&b'/') {
@@ -369,6 +349,11 @@ fn list_dir_contents(
     if path.last() == Some(&b'/') {
         path.pop();
     }
+}
+
+#[inline(never)]
+fn access_error(item: &[u8], error: Error) {
+    error!("Unable to access '", item, "': OS Error ", error.0, "\n");
 }
 
 #[derive(Default, Clone)]
