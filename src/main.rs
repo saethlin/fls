@@ -86,6 +86,7 @@ unsafe extern "C" fn main(argc: isize, argv: *const *const libc::c_char) -> i32 
     }
 }
 
+#[inline(never)]
 fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
     let mut app = cli::App::from_arguments(args)?;
 
@@ -193,6 +194,8 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
     for (n, (name, dir)) in dirs.iter().enumerate() {
         let mut path = Vec::with_capacity(1024);
         path.extend(name.as_bytes());
+        //let mut stack = Vec::with_capacity(64);
+        // TODO: Stat dir, add to stack
         list_dir_contents(
             multiple_args,
             need_details,
@@ -284,7 +287,7 @@ fn list_dir_contents(
     }
 
     if multiple_args || app.recurse {
-        print!(app, path.as_slice(), ":\n");
+        app.out.write(path.as_slice()).write(b":\n");
     }
 
     if need_details {
@@ -363,6 +366,7 @@ fn list_dir_contents(
 
 #[derive(Default, Clone)]
 pub struct Status {
+    pub device: libc::dev_t,
     pub links: libc::nlink_t,
     pub mode: libc::mode_t,
     pub size: libc::off_t,

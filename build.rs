@@ -41,6 +41,8 @@ static STYLES: &[(&[&str], &str)] = &[
 use std::io::Write;
 
 fn main() {
+    println!("cargo:rustc-link-lib=dylib=c");
+
     let mut all_styles = Vec::new();
     for (extensions, style) in STYLES {
         for ext in *extensions {

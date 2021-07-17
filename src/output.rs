@@ -16,7 +16,6 @@ macro_rules! print {
     }};
 }
 
-#[inline(never)]
 fn print_rwx(app: &mut App, mode: u32, read_mask: u32, write_mask: u32, execute_mask: u32) {
     use crate::Style::*;
 
@@ -39,7 +38,6 @@ fn print_rwx(app: &mut App, mode: u32, read_mask: u32, write_mask: u32, execute_
     }
 }
 
-#[inline(never)]
 pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, app: &mut App) {
     use Style::*;
 
@@ -204,7 +202,6 @@ pub struct Pool {
     pub widths: Vec<usize>,
 }
 
-#[inline(never)]
 pub fn write_grid(
     entries: &[(DirEntry, Option<Status>)],
     dir: &Directory,
@@ -368,7 +365,6 @@ pub fn write_grid(
     pool.layouts = layouts;
 }
 
-#[inline(never)]
 pub fn write_stream(entries: &[(DirEntry, Option<Status>)], dir: &Directory, app: &mut App) {
     if app.display_size_in_blocks {
         print_total_blocks(entries, app);
@@ -399,7 +395,6 @@ pub fn write_stream(entries: &[(DirEntry, Option<Status>)], dir: &Directory, app
     app.out.push(b'\n');
 }
 
-#[inline(never)]
 pub fn write_single_column(entries: &[(DirEntry, Option<Status>)], dir: &Directory, app: &mut App) {
     if app.display_size_in_blocks {
         print_total_blocks(entries, app);
@@ -446,6 +441,7 @@ pub fn write_single_column(entries: &[(DirEntry, Option<Status>)], dir: &Directo
     }
 }
 
+#[inline(never)]
 fn len_utf8(bytes: &[u8]) -> usize {
     if bytes.iter().all(u8::is_ascii) {
         bytes.len()
@@ -588,7 +584,6 @@ impl OutputBuffer {
         self
     }
 
-    #[cold]
     #[inline(never)]
     pub fn flush(&mut self) {
         write_all(&self.buf[..self.buf_used], self.fd);

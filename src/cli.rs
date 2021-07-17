@@ -90,32 +90,13 @@ pub enum DisplayMode {
 }
 
 impl App {
+    #[inline(never)]
     pub fn from_arguments(raw_args: Vec<CStr<'static>>) -> Result<Self, crate::Error> {
         let mut args = Vec::with_capacity(raw_args.len());
         let mut switches = Vec::with_capacity(16);
-        let mut named_arguments = Vec::new();
         let mut args_valid = true;
 
         let mut hit_only_arg_marker = false;
-
-        for arg in raw_args.into_iter().skip(1) {
-            if arg.as_bytes() == b"--" {
-                hit_only_arg_marker = true;
-            } else if hit_only_arg_marker {
-                args.push(arg);
-            // Things like --color=always
-            } else if arg.as_bytes().starts_with(b"--") {
-                named_arguments.push(arg);
-            // Things like -R
-            } else if arg.get(0) == Some(b'-') {
-                switches.extend(arg.as_bytes().iter().copied().skip(1));
-            } else {
-                args.push(arg);
-            }
-        }
-        if args.is_empty() {
-            args.push(CStr::from_bytes(b".\0"));
-        }
 
         let mut app = App {
             print_inode: false,
@@ -137,32 +118,43 @@ impl App {
             print_group: true,
             color: Color::Auto,
             out: OutputBuffer::to_fd(1),
-            args,
+            args: Vec::new(),
             uid_names: Vec::new(),
             gid_names: Vec::new(),
             etc_passwd: &[],
             etc_group: &[],
         };
 
-        for arg in named_arguments.iter().map(CStr::as_bytes) {
-            if let Some(p) = arg.iter().position(|b| *b == b'=') {
-                let (name, value) = arg.split_at(p);
-                let name = &name[2..]; // Trim off the --
-                let value = &value[1..]; // Trim off the =
-                if name == b"color" {
-                    match value {
-                        b"always" => app.color = Color::Always,
-                        b"auto" => app.color = Color::Auto,
-                        b"never" => app.color = Color::Never,
-                        _ => {
-                            error!("invalid argument \'", value, "\' for \'", name, "'\n");
-                        }
-                    }
-                } else {
-                    error!("unrecognized option \'", arg, "\'\n");
+        for arg in raw_args.into_iter().skip(1) {
+            if arg.as_bytes() == b"--" {
+                hit_only_arg_marker = true;
+            } else if hit_only_arg_marker {
+                app.args.push(arg);
+            // Things like --color=always
+            } else if arg.as_bytes().starts_with(b"--") {
+                match arg.as_bytes() {
+                    b"--color=never" => app.color = Color::Never,
+                    b"--color=auto" => app.color = Color::Auto,
+                    b"--color=always" => app.color = Color::Always,
+                    _ => error!("unrecognized option \'", arg, "\'\n"),
                 }
+            // Things like -R
+            } else if arg.get(0) == Some(b'-') {
+                switches.extend(arg.as_bytes().iter().copied().skip(1));
             } else {
-                error!("unrecognized option \'", arg, "\'\n");
+                app.args.push(arg);
+            }
+        }
+        if app.args.is_empty() {
+            app.args.push(CStr::from_bytes(b".\0"));
+        }
+
+        #[allow(non_snake_case)]
+        let mut switches_contains_H_or_L = false;
+        for s in &switches {
+            if s == &b'H' || s == &b'L' {
+                switches_contains_H_or_L = true;
+                break;
             }
         }
 
@@ -171,13 +163,12 @@ impl App {
                 b'A' => {
                     app.show_all = ShowAll::Almost;
                 }
-
                 b'C' => {
                     app.display_mode = DisplayMode::Grid(0);
                     app.grid_sort_direction = SortDirection::Horizontal;
                 }
                 b'F' => {
-                    if !switches.contains(&b'H') && !switches.contains(&b'L') {
+                    if !switches_contains_H_or_L {
                         app.follow_symlinks = FollowSymlinks::Never;
                     }
                     app.suffixes = Suffixes::All;
@@ -202,7 +193,7 @@ impl App {
                     app.sort_field = Some(SortField::Time);
                 }
                 b'd' => {
-                    if !switches.contains(&b'H') && !switches.contains(&b'L') {
+                    if !switches_contains_H_or_L {
                         app.follow_symlinks = FollowSymlinks::Never;
                     }
                     app.list_directory_contents = false;
@@ -288,67 +279,49 @@ impl App {
             return Err(Error(-1));
         }
 
-        // Initialize name and group id lookup
-        {
-            let fd = open(
-                CStr::from_bytes(&b"/etc/passwd\0"[..]),
-                OpenFlags::RDONLY,
-                OpenMode::empty(),
-            )?;
-            let len = fstat(fd)?.st_size as usize;
-            let mut contents = alloc::vec![0; len];
-            read(fd, &mut contents)?;
-            close(fd)?;
-            app.etc_passwd = alloc::boxed::Box::leak(contents.into_boxed_slice());
-
-            let mut offset = 0;
-            for line in app.etc_passwd.split(|b| *b == b'\n') {
-                if line.is_empty() {
-                    offset += line.len() + 1;
-                    continue;
-                }
-                let mut it = line.split(|b| *b == b':');
-                let name = it.next().unwrap();
-                let _passwd = it.next().unwrap();
-                let uid = atoi(it.next().unwrap()) as u32;
-
-                app.uid_names.push((uid, (offset, offset + name.len())));
-
-                offset += line.len() + 1;
-            }
-        }
-
-        {
-            // Initialize name and group id lookup
-            let fd = open(
-                CStr::from_bytes(&b"/etc/group\0"[..]),
-                OpenFlags::RDONLY,
-                OpenMode::empty(),
-            )?;
-            let len = fstat(fd)?.st_size as usize;
-            let mut contents = alloc::vec![0; len];
-            read(fd, &mut contents)?;
-            close(fd)?;
-
-            app.etc_group = alloc::boxed::Box::leak(contents.into_boxed_slice());
-
-            let mut offset = 0;
-            for line in app.etc_group.split(|b| *b == b'\n') {
-                if line.is_empty() {
-                    offset += line.len() + 1;
-                    continue;
-                }
-                let mut it = line.split(|b| *b == b':');
-                let name = it.next().unwrap().to_vec();
-                let _passwd = it.next().unwrap();
-                let gid = atoi(it.next().unwrap()) as u32;
-
-                app.gid_names.push((gid, (offset, offset + name.len())));
-                offset += line.len() + 1;
-            }
-        }
+        Self::init_id_map(
+            &b"/etc/passwd\0"[..],
+            &mut app.etc_passwd,
+            &mut app.uid_names,
+        )?;
+        Self::init_id_map(
+            &b"/etc/groups\0"[..],
+            &mut app.etc_group,
+            &mut app.gid_names,
+        )?;
 
         Ok(app)
+    }
+
+    #[inline(never)]
+    fn init_id_map(
+        path: &'static [u8],
+        slab: &mut &'static [u8],
+        map: &mut Vec<(u32, (usize, usize))>,
+    ) -> Result<(), Error> {
+        let fd = open(CStr::from_bytes(path), OpenFlags::RDONLY, OpenMode::empty())?;
+        let len = fstat(fd)?.st_size as usize;
+        let mut contents = alloc::vec![0; len];
+        read(fd, &mut contents)?;
+        close(fd)?;
+        *slab = alloc::boxed::Box::leak(contents.into_boxed_slice());
+
+        let mut offset = 0;
+        for line in slab.split(|b| *b == b'\n') {
+            if line.is_empty() {
+                offset += line.len() + 1;
+                continue;
+            }
+            let mut it = line.split(|b| *b == b':');
+            let name = it.next().unwrap();
+            let _passwd = it.next().unwrap();
+            let uid = atoi(it.next().unwrap()) as u32;
+
+            map.push((uid, (offset, offset + name.len())));
+
+            offset += line.len() + 1;
+        }
+        Ok(())
     }
 
     pub fn getpwuid(&self, uid: u32) -> &'static [u8] {
@@ -370,6 +343,7 @@ impl App {
     pub fn convert_status(&self, status: libc::stat64) -> crate::Status {
         use TimeField::*;
         crate::Status {
+            device: status.st_dev,
             links: status.st_nlink,
             mode: status.st_mode,
             size: status.st_size,

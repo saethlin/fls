@@ -88,14 +88,12 @@ impl<'a> DirEntryExt for (veneer::directory::DirEntry<'a>, Option<crate::Status>
 
     fn style(&self, dir: &veneer::Directory, app: &App) -> (Style, Option<u8>) {
         use EntryType::*;
-        if app.color == Color::Never {
-            return (Style::White, None);
-        }
-        if let Some(status) = &self.1 {
-            return style_from_status(&self.0, status, app);
-        }
-        if app.color == Color::Auto {
-            let (style, suffix) = match self.0.d_type {
+
+        // Deduce the correct DirEntry type
+        let entry_type = if let Some(status) = &self.1 {
+            entry_type_from_status(status)
+        } else if app.color == Color::Auto {
+            match self.0.d_type {
                 DType::DIR => Directory,
                 DType::FIFO => Fifo,
                 DType::SOCK => Socket,
@@ -103,55 +101,53 @@ impl<'a> DirEntryExt for (veneer::directory::DirEntry<'a>, Option<crate::Status>
                 DType::LNK => Link,
                 DType::REG | DType::UNKNOWN => Regular,
             }
-            .style(app);
-
-            return if let Some(style) = style {
-                (style, suffix)
-            } else {
-                (extension_style(self.name().as_bytes()), suffix)
-            };
-        }
-        // app.color == Color::Always
-        let (style, suffix) = match self.0.d_type {
-            DType::DIR => Directory,
-            DType::FIFO => Fifo,
-            DType::SOCK => Socket,
-            DType::CHR | DType::BLK => Other,
-            DType::REG => syscalls::faccessat(dir.raw_fd(), self.name(), libc::X_OK)
-                .map(|_| Executable)
-                .unwrap_or(Regular),
-            DType::LNK => syscalls::faccessat(dir.raw_fd(), self.name(), libc::F_OK)
-                .map(|_| Link)
-                .unwrap_or(BrokenLink),
-            DType::UNKNOWN => if app.follow_symlinks == FollowSymlinks::Always {
-                syscalls::fstatat(dir.raw_fd(), self.0.name)
-            } else {
-                syscalls::lstatat(dir.raw_fd(), self.0.name)
-            }
-            .map(|status| {
-                let status = app.convert_status(status);
-                let entry_type = status.mode & libc::S_IFMT;
-                if entry_type == libc::S_IFDIR {
-                    Directory
-                } else if entry_type == libc::S_IFIFO {
-                    Fifo
-                } else if entry_type == libc::S_IFLNK {
-                    if app.color == Color::Always
-                        && syscalls::faccessat(dir.raw_fd(), self.0.name, libc::F_OK).is_err()
-                    {
-                        BrokenLink
-                    } else {
-                        Link
-                    }
-                } else if status.mode & libc::S_IXUSR > 0 {
-                    Executable
+        } else {
+            match self.0.d_type {
+                DType::DIR => Directory,
+                DType::FIFO => Fifo,
+                DType::SOCK => Socket,
+                DType::CHR | DType::BLK => Other,
+                DType::REG => syscalls::faccessat(dir.raw_fd(), self.name(), libc::X_OK)
+                    .map(|_| Executable)
+                    .unwrap_or(Regular),
+                DType::LNK => syscalls::faccessat(dir.raw_fd(), self.name(), libc::F_OK)
+                    .map(|_| Link)
+                    .unwrap_or(BrokenLink),
+                DType::UNKNOWN => if app.follow_symlinks == FollowSymlinks::Always {
+                    syscalls::fstatat(dir.raw_fd(), self.0.name)
                 } else {
-                    Regular
+                    syscalls::lstatat(dir.raw_fd(), self.0.name)
                 }
-            })
-            .unwrap_or(BrokenLink),
+                .map(|status| {
+                    let status = app.convert_status(status);
+                    let entry_type = status.mode & libc::S_IFMT;
+                    if entry_type == libc::S_IFDIR {
+                        Directory
+                    } else if entry_type == libc::S_IFIFO {
+                        Fifo
+                    } else if entry_type == libc::S_IFLNK {
+                        if app.color == Color::Always
+                            && syscalls::faccessat(dir.raw_fd(), self.0.name, libc::F_OK).is_err()
+                        {
+                            BrokenLink
+                        } else {
+                            Link
+                        }
+                    } else if status.mode & libc::S_IXUSR > 0 {
+                        Executable
+                    } else {
+                        Regular
+                    }
+                })
+                .unwrap_or(BrokenLink),
+            }
+        };
+
+        let (style, suffix) = entry_type.style(app);
+
+        if app.color == Color::Never {
+            return (Style::Reset, suffix);
         }
-        .style(app);
 
         if let Some(style) = style {
             (style, suffix)
@@ -163,7 +159,6 @@ impl<'a> DirEntryExt for (veneer::directory::DirEntry<'a>, Option<crate::Status>
 
 include!(concat!(env!("OUT_DIR"), "/codegen.rs"));
 
-#[inline(never)]
 pub fn extension_style(name: &[u8]) -> Style {
     if name.get(0) == Some(&b'#') || name.last() == Some(&b'~') || name.last() == Some(&b'#') {
         return Style::Fixed(244);
@@ -179,14 +174,10 @@ pub fn extension_style(name: &[u8]) -> Style {
     }
 }
 
-fn style_from_status(
-    entry: &crate::veneer::DirEntry<'_>,
-    status: &crate::Status,
-    app: &App,
-) -> (Style, Option<u8>) {
+fn entry_type_from_status(status: &crate::Status) -> EntryType {
     use EntryType::*;
     let entry_type = status.mode & libc::S_IFMT;
-    let (style, suffix) = if entry_type == libc::S_IFDIR {
+    if entry_type == libc::S_IFDIR {
         Directory
     } else if entry_type == libc::S_IFIFO {
         Fifo
@@ -200,12 +191,5 @@ fn style_from_status(
         Regular
     } else {
         Other
-    }
-    .style(app);
-
-    if let Some(style) = style {
-        (style, suffix)
-    } else {
-        (extension_style(entry.name.as_bytes()), suffix)
     }
 }
