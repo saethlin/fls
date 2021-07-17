@@ -191,7 +191,16 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
     }
 
     for (n, (name, dir)) in dirs.iter().enumerate() {
-        list_dir_contents(multiple_args, need_details, *name, dir, &mut app, &mut pool);
+        let mut path = Vec::with_capacity(1024);
+        path.extend(name.as_bytes());
+        list_dir_contents(
+            multiple_args,
+            need_details,
+            &mut path,
+            dir,
+            &mut app,
+            &mut pool,
+        );
         // When recursing the recursion handles newlines, if not we need to check if we're on the
         // last and print a newline
         if !app.recurse && (n != dirs.len() - 1) {
@@ -232,7 +241,7 @@ fn sort_entries(entries: &mut [(DirEntry, Option<Status>)], app: &App) {
 fn list_dir_contents(
     multiple_args: bool,
     need_details: bool,
-    name: CStr,
+    path: &mut Vec<u8>,
     dir: &veneer::Directory,
     app: &mut cli::App,
     pool: &mut Pool,
@@ -242,7 +251,7 @@ fn list_dir_contents(
         Err(err) => {
             error!(
                 b"Unable to access '",
-                name.as_bytes(),
+                path.as_slice(),
                 b"': ",
                 err.msg().as_bytes()
             );
@@ -275,7 +284,7 @@ fn list_dir_contents(
     }
 
     if multiple_args || app.recurse {
-        print!(app, name, ":\n");
+        print!(app, path.as_slice(), ":\n");
     }
 
     if need_details {
@@ -310,10 +319,10 @@ fn list_dir_contents(
         DisplayMode::SingleColumn => write_single_column(&entries, dir, app),
         DisplayMode::Stream => write_stream(&entries, dir, app),
     }
+    app.out.flush();
 
     if app.recurse {
         app.out.push(b'\n');
-        let mut path = Vec::new();
         for e in entries
             .into_iter()
             .filter_map(|(e, status)| {
@@ -331,19 +340,24 @@ fn list_dir_contents(
             .filter(|e| e.name.as_bytes() != b".")
             .filter(|e| e.d_type == DType::DIR || e.d_type == DType::UNKNOWN)
         {
-            path.clear();
-            path.extend(name.as_bytes());
+            if path.last() == Some(&0) {
+                path.pop();
+            }
             if path.last() != Some(&b'/') {
                 path.push(b'/');
             }
-            path.extend_from_slice(e.name.as_bytes());
+            path.extend(e.name.as_bytes());
             path.push(0);
-            let path = CStr::from_bytes(&path);
-            if let Ok(dir) = veneer::Directory::open(path) {
-                app.out.flush();
+            if let Ok(dir) = veneer::Directory::open(CStr::from_bytes(path)) {
                 list_dir_contents(multiple_args, need_details, path, &dir, app, pool);
             }
+            while path.last() != Some(&b'/') {
+                path.pop();
+            }
         }
+    }
+    if path.last() == Some(&b'/') {
+        path.pop();
     }
 }
 
