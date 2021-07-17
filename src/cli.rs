@@ -92,7 +92,6 @@ pub enum DisplayMode {
 impl App {
     #[inline(never)]
     pub fn from_arguments(raw_args: Vec<CStr<'static>>) -> Result<Self, crate::Error> {
-        let mut args = Vec::with_capacity(raw_args.len());
         let mut switches = Vec::with_capacity(16);
         let mut args_valid = true;
 
