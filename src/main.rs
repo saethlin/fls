@@ -53,7 +53,7 @@ fn alloc_error(layout: core::alloc::Layout) -> ! {
 static ALLOC: veneer::Allocator = veneer::Allocator;
 
 extern crate alloc;
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 // Temporariliy pasting veneer's code into this crate until veneer is more done
 mod veneer;
@@ -194,9 +194,10 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
     for (n, (name, dir)) in dirs.iter().enumerate() {
         let mut path = Vec::with_capacity(1024);
         path.extend(name.as_bytes());
-        //let mut stack = Vec::with_capacity(64);
-        // TODO: Stat dir, add to stack
+        let status = syscalls::fstat(dir.raw_fd()).unwrap();
+        let mut stack = vec![(status.st_dev, status.st_ino)];
         list_dir_contents(
+            &mut stack,
             multiple_args,
             need_details,
             &mut path,
@@ -242,6 +243,7 @@ fn sort_entries(entries: &mut [(DirEntry, Option<Status>)], app: &App) {
 }
 
 fn list_dir_contents(
+    stack: &mut Vec<(libc::dev_t, libc::ino_t)>,
     multiple_args: bool,
     need_details: bool,
     path: &mut Vec<u8>,
@@ -352,7 +354,12 @@ fn list_dir_contents(
             path.extend(e.name.as_bytes());
             path.push(0);
             if let Ok(dir) = veneer::Directory::open(CStr::from_bytes(path)) {
-                list_dir_contents(multiple_args, need_details, path, &dir, app, pool);
+                let status = syscalls::fstat(dir.raw_fd()).unwrap();
+                if !stack.contains(&(status.st_dev, status.st_ino)) {
+                    stack.push((status.st_dev, status.st_ino));
+                    list_dir_contents(stack, multiple_args, need_details, path, &dir, app, pool);
+                    stack.pop();
+                }
             }
             while path.last() != Some(&b'/') {
                 path.pop();

@@ -283,11 +283,7 @@ impl App {
             &mut app.etc_passwd,
             &mut app.uid_names,
         )?;
-        Self::init_id_map(
-            &b"/etc/groups\0"[..],
-            &mut app.etc_group,
-            &mut app.gid_names,
-        )?;
+        Self::init_id_map(&b"/etc/group\0"[..], &mut app.etc_group, &mut app.gid_names)?;
 
         Ok(app)
     }
