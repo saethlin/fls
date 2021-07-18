@@ -1,8 +1,10 @@
-use crate::directory::DirEntryExt;
-use crate::utils::Buffer;
-use crate::veneer::{syscalls, CStr, DirEntry, Directory};
-use crate::{cli::App, Status, Style};
-use alloc::vec::Vec;
+use crate::{
+    cli::App,
+    directory::DirEntryExt,
+    utils::Buffer,
+    veneer::{syscalls, CStr, DirEntry, Directory},
+    Pool, Status, Style,
+};
 
 use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR};
 use unicode_segmentation::UnicodeSegmentation;
@@ -191,15 +193,6 @@ fn print_total_blocks(entries: &[(DirEntry, Option<Status>)], app: &mut App) {
             .sum::<i64>() as u64,
         "\n"
     );
-}
-
-#[derive(Default)]
-pub struct Pool {
-    pub lengths: Vec<usize>,
-    pub styles: Vec<(Style, Option<u8>)>,
-    pub layouts: Vec<usize>,
-    pub cursors: Vec<(usize, usize, usize)>,
-    pub widths: Vec<usize>,
 }
 
 pub fn write_grid(

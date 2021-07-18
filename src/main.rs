@@ -50,7 +50,7 @@ fn alloc_error(layout: core::alloc::Layout) -> ! {
 }
 
 #[global_allocator]
-static ALLOC: veneer::Allocator = veneer::Allocator;
+static ALLOC: veneer::Allocator = veneer::Allocator::new();
 
 extern crate alloc;
 use alloc::{vec, vec::Vec};
@@ -86,16 +86,9 @@ unsafe extern "C" fn main(argc: isize, argv: *const *const u8) -> i32 {
 fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
     let mut app = cli::App::from_arguments(args)?;
 
-    let need_details = app.display_mode == DisplayMode::Long
-        || app.sort_field == Some(SortField::Time)
-        || app.sort_field == Some(SortField::Size)
-        || app.display_size_in_blocks;
-
-    let multiple_args = app.args.len() > 1;
-
     let mut dirs = Vec::new();
     let mut files = Vec::new();
-    let mut pool = crate::output::Pool::default();
+    let mut pool = Pool::default();
 
     if app.list_directory_contents {
         for arg in app.args.clone() {
@@ -140,7 +133,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
 
     if !files.is_empty() {
         let dir = veneer::Directory::open(CStr::from_bytes(b".\0")).unwrap();
-        if need_details {
+        if app.needs_details {
             for e in &mut files {
                 let status = if app.follow_symlinks == cli::FollowSymlinks::Always {
                     syscalls::fstatat(dir.raw_fd(), e.name())
@@ -176,15 +169,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
         path.extend(name.as_bytes());
         let status = syscalls::fstat(dir.raw_fd()).unwrap();
         let mut stack = vec![(status.st_dev, status.st_ino)];
-        list_dir_contents(
-            &mut stack,
-            multiple_args,
-            need_details,
-            &mut path,
-            dir,
-            &mut app,
-            &mut pool,
-        );
+        list_dir_contents(&mut stack, &mut path, dir, &mut app, &mut pool);
         // When recursing the recursion handles newlines, if not we need to check if we're on the
         // last and print a newline
         if !app.recurse && (n != dirs.len() - 1) {
@@ -195,8 +180,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
     Ok(())
 }
 
-use crate::cli::App;
-use crate::veneer::DirEntry;
+use crate::{cli::App, veneer::DirEntry};
 fn sort_entries(entries: &mut [(DirEntry, Option<Status>)], app: &App) {
     if let Some(field) = app.sort_field {
         entries.sort_unstable_by(|a, b| {
@@ -222,10 +206,17 @@ fn sort_entries(entries: &mut [(DirEntry, Option<Status>)], app: &App) {
     }
 }
 
+#[derive(Default)]
+pub struct Pool {
+    pub lengths: Vec<usize>,
+    pub styles: Vec<(Style, Option<u8>)>,
+    pub layouts: Vec<usize>,
+    pub cursors: Vec<(usize, usize, usize)>,
+    pub widths: Vec<usize>,
+}
+
 fn list_dir_contents(
     stack: &mut Vec<(libc::dev_t, libc::ino_t)>,
-    multiple_args: bool,
-    need_details: bool,
     path: &mut Vec<u8>,
     dir: &veneer::Directory,
     app: &mut cli::App,
@@ -262,11 +253,11 @@ fn list_dir_contents(
         }
     }
 
-    if multiple_args || app.recurse {
+    if app.args.len() > 1 || app.recurse {
         app.out.write(&path[..path.len() - 1]).write(b":\n");
     }
 
-    if need_details {
+    if app.needs_details {
         for e in &mut entries {
             let status = if app.follow_symlinks == cli::FollowSymlinks::Always {
                 syscalls::fstatat(dir.raw_fd(), e.name())
@@ -296,7 +287,7 @@ fn list_dir_contents(
     if app.recurse {
         app.out.push(b'\n');
         for e in entries
-            .into_iter()
+            .iter()
             .filter_map(|(e, status)| {
                 if let Some(st) = status {
                     if st.mode & libc::S_IFMT == libc::S_IFDIR {
@@ -325,15 +316,7 @@ fn list_dir_contents(
                     let status = syscalls::fstat(dir.raw_fd()).unwrap();
                     if !stack.contains(&(status.st_dev, status.st_ino)) {
                         stack.push((status.st_dev, status.st_ino));
-                        list_dir_contents(
-                            stack,
-                            multiple_args,
-                            need_details,
-                            path,
-                            &dir,
-                            app,
-                            pool,
-                        );
+                        list_dir_contents(stack, path, &dir, app, pool);
                         stack.pop();
                     }
                 }

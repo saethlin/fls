@@ -1,6 +1,8 @@
-use crate::output::OutputBuffer;
-use crate::utils::atoi;
-use crate::veneer::{syscalls::*, CStr, Error};
+use crate::{
+    output::OutputBuffer,
+    utils::atoi,
+    veneer::{syscalls::*, CStr, Error},
+};
 use alloc::vec::Vec;
 
 pub struct App {
@@ -30,6 +32,8 @@ pub struct App {
     uid_names: Vec<(u32, (usize, usize))>,
     etc_group: &'static [u8],
     gid_names: Vec<(u32, (usize, usize))>,
+
+    pub needs_details: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -122,6 +126,7 @@ impl App {
             gid_names: Vec::new(),
             etc_passwd: &[],
             etc_group: &[],
+            needs_details: false,
         };
 
         for arg in raw_args.into_iter().skip(1) {
@@ -284,6 +289,11 @@ impl App {
             &mut app.uid_names,
         )?;
         Self::init_id_map(&b"/etc/group\0"[..], &mut app.etc_group, &mut app.gid_names)?;
+
+        app.needs_details = app.display_mode == DisplayMode::Long
+            || app.sort_field == Some(SortField::Time)
+            || app.sort_field == Some(SortField::Size)
+            || app.display_size_in_blocks;
 
         Ok(app)
     }

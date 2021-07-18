@@ -1,7 +1,7 @@
-use crate::veneer;
-use crate::veneer::{directory::DType, syscalls, CStr};
 use crate::{
     cli::{App, Color, FollowSymlinks},
+    veneer,
+    veneer::{directory::DType, syscalls, CStr},
     Style,
 };
 
