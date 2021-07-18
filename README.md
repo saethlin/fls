@@ -14,13 +14,13 @@ I can only estimate the runtime of `lsd` by rescaling its runtime on another lar
 
 ## But How?
 
-`fls` addresses code size by being `#![no_std]`, which is important not because the standard library is in general large, but because the standard library's panic runtime is massive. The rest of the code size was trimmed down mostly by running the excellent tool [`cargo bloat`](https://crates.io/crates/cargo-bloat) to identify places to replace generics with runtime dispatch.
+`fls` addresses code size by being `#![no_std]`, which is important not because the standard library is in general large, but because the standard library's panic runtime is massive. The rest of the code size was trimmed down mostly by running the excellent tool [`cargo bloat`](https://crates.io/crates/cargo-bloat) to identify places to replace generics with runtime dispatch, and just manually reviewing the code to factor out repeated code patterns.
 
 In terms of speed, `fls` is faster because it doesn't use the POSIX interfaces for listing files. We directly call `getdents64` and parse the output, instead of dealing with all the calls and heap allocation of `read_dir`. And in addition to this, we get access to the directory entry type member, which lets us omit a number of `stat` calls, which can be expensive relative to other fs syscalls.
 
 ## `--color=auto`
 
-`fls` has the same interpretation as GNU ls for `--color=always` and `--color=never`, but under `--color=auto`, `fls` will _only_ apply colors based on file extension and the information available from `getdents64`, which is optional. Thus, the coloring of `fls --color=auto` is unpredictable, but you get _some_ coloring of output without any expensive `stat` calls. `fls` was originally developed when I was working a lot on an HPC filesystem, and `ls --color=always` on large directories could take seconds to minutes. `fls --color=auto` provides the same colors in those directories, in the blink of an eye.
+`fls` has the same interpretation as GNU ls for `--color=always` and `--color=never`, but under `--color=auto`, `fls` will _only_ apply colors based on file extension and the information available from `getdents64`, which is optional. Thus, the coloring of `fls --color=auto` is unpredictable, but you get _some_ coloring of output without any expensive `stat` calls. `fls` was originally developed when my dev environment was a compute node with an HPC filesystem, and `ls --color=always` on large directories could take seconds to minutes. `fls --color=auto` provides the same colors in those directories, in the blink of an eye.
 
 ## POSIX features:
 
