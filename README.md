@@ -8,7 +8,9 @@ A nearly POSIX-compliant `ls` that's smaller, faster, and prettier than GNU's.
 | fls | 0.66 |
 | GNU ls  | 1.22  |
 | exa  | 3.61 |
-| lsd  | >1000  |
+| lsd  | ~34  |
+
+I can only estimate the runtime of `lsd` by rescaling its runtime on another large directory tree, because `lsd` doesn't detect symlink cycles and thus runs indefinitely on `-R /`.
 
 ## But How?
 
