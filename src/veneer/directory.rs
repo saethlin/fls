@@ -30,10 +30,10 @@ impl<'a> Directory {
     pub fn read(&self) -> Result<DirectoryContents, crate::Error> {
         use alloc::alloc::{alloc, realloc, Layout};
         unsafe {
-            let chunk_size = 4096;
+            let initial_size = 4096;
 
             let mut layout = Layout::from_size_align_unchecked(
-                chunk_size,
+                initial_size,
                 core::mem::align_of::<libc::dirent64>(),
             );
             let mut ptr = alloc(layout);
@@ -58,12 +58,11 @@ impl<'a> Directory {
             // Then, if we read something on the second time, start reallocating.
 
             // Must run this loop until getdents64 returns no new entries
-            // Yes, it looks silly but some filesystems (at least sshfs) rely on this behavior
+            // Yes, even if there is plenty of unused space. Some filesystems (at least sshfs) rely on this behavior
             while bytes_used != previous_bytes_used {
                 previous_bytes_used = bytes_used;
-                ptr = realloc(ptr, layout, layout.size() + chunk_size);
-                layout =
-                    Layout::from_size_align_unchecked(layout.size() + chunk_size, layout.align());
+                ptr = realloc(ptr, layout, layout.size() * 2);
+                layout = Layout::from_size_align_unchecked(layout.size() * 2, layout.align());
                 bytes_used += syscalls::getdents64(
                     self.fd,
                     core::slice::from_raw_parts_mut(
