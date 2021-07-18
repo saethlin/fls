@@ -21,17 +21,10 @@ macro_rules! error {
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    if let Some(location) = info.location() {
-        error!(
-            "Panicked at ",
-            location.file(),
-            ":",
-            location.line() as u64,
-            "\n"
-        );
-    } else {
-        let _ = error!("Panicked, location unknown\n");
-    }
+    use core::fmt::Write;
+    let mut buf = crate::output::OutputBuffer::to_fd(2);
+    let _ = write!(buf, "{}\n", info);
+    buf.flush();
     let _ = veneer::syscalls::kill(0, libc::SIGABRT);
     veneer::syscalls::exit(-1);
     loop {}
@@ -55,7 +48,7 @@ static ALLOC: veneer::Allocator = veneer::Allocator::new();
 extern crate alloc;
 use alloc::{vec, vec::Vec};
 
-// Temporariliy pasting veneer's code into this crate until veneer is more done
+// Temporariliy pasting veneer's code into this crate until veneer is more complete
 mod veneer;
 
 #[macro_use]
@@ -63,13 +56,13 @@ pub mod output;
 mod cli;
 mod directory;
 mod style;
+mod time;
 mod utils;
 
 use cli::{DisplayMode, ShowAll, SortField};
 use directory::DirEntryExt;
 use output::*;
 use style::Style;
-
 use veneer::{directory::DType, syscalls, CStr, Error};
 
 #[no_mangle]

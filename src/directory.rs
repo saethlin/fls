@@ -1,5 +1,6 @@
 use crate::{
     cli::{App, Color, FollowSymlinks},
+    utils::memcmp,
     veneer,
     veneer::{directory::DType, syscalls, CStr},
     Style,
@@ -170,7 +171,7 @@ pub fn extension_style(name: &[u8]) -> Style {
         None => return Style::White,
         Some(ext) => ext,
     };
-    if let Ok(i) = EXTENSION_STYLES.binary_search_by(|probe| probe.0.cmp(extension)) {
+    if let Ok(i) = EXTENSION_STYLES.binary_search_by(|probe| memcmp(probe.0, extension)) {
         EXTENSION_STYLES[i].1
     } else {
         Style::White

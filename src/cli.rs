@@ -33,6 +33,8 @@ pub struct App {
     etc_group: &'static [u8],
     gid_names: Vec<(u32, (usize, usize))>,
 
+    pub tzinfo: crate::time::Tzinfo,
+
     pub needs_details: bool,
 }
 
@@ -127,6 +129,7 @@ impl App {
             etc_passwd: &[],
             etc_group: &[],
             needs_details: false,
+            tzinfo: crate::time::Tzinfo::new(),
         };
 
         for arg in raw_args.into_iter().skip(1) {
@@ -304,11 +307,7 @@ impl App {
         slab: &mut &'static [u8],
         map: &mut Vec<(u32, (usize, usize))>,
     ) -> Result<(), Error> {
-        let fd = open(CStr::from_bytes(path), OpenFlags::RDONLY, OpenMode::empty())?;
-        let len = fstat(fd)?.st_size as usize;
-        let mut contents = alloc::vec![0; len];
-        read(fd, &mut contents)?;
-        close(fd)?;
+        let contents = crate::utils::fs_read(CStr::from_bytes(path))?;
         *slab = alloc::boxed::Box::leak(contents.into_boxed_slice());
 
         let mut offset = 0;

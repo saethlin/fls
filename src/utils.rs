@@ -1,3 +1,8 @@
+use crate::{
+    syscalls::{close, fstat, open, read, OpenFlags, OpenMode},
+    CStr,
+};
+use alloc::vec::Vec;
 use core::{ptr, slice};
 
 pub fn atoi(digits: &[u8]) -> u64 {
@@ -61,4 +66,52 @@ impl Buffer {
         let len = buf.len() - curr;
         unsafe { slice::from_raw_parts(buf_ptr.add(curr), len) }
     }
+}
+
+pub fn memcpy(dst: &mut [u8], src: &[u8]) {
+    assert_eq!(dst.len(), src.len());
+    let len = src.len();
+    unsafe {
+        let end = src.as_ptr().add(len) as *const u32;
+        let mut dst = dst.as_mut_ptr() as *mut u32;
+        let mut src = src.as_ptr() as *const u32;
+
+        while end > src {
+            dst.write_unaligned(src.read_unaligned());
+            dst = dst.add(1);
+            src = src.add(1);
+        }
+
+        let end = end.cast::<u8>();
+        let mut dst = dst.cast::<u8>();
+        let mut src = src.cast::<u8>();
+        while end > src {
+            *dst = *src;
+            dst = dst.add(1);
+            src = src.add(1);
+        }
+    }
+}
+
+// This is significantly faster than using the libc implementation because our slices are usually
+// very small, and this implementation emits very little code so it is very profitable to inline.
+pub fn memcmp(aa: &[u8], bb: &[u8]) -> core::cmp::Ordering {
+    for (a, b) in aa.iter().zip(bb.iter()) {
+        if *a != *b {
+            return a.cmp(b);
+        }
+    }
+    return aa.len().cmp(&bb.len());
+}
+
+pub fn fs_read(path: CStr<'_>) -> Result<Vec<u8>, crate::Error> {
+    let fd = open(path, OpenFlags::RDONLY, OpenMode::empty())?;
+    let len = fstat(fd)?.st_size as usize;
+    let mut contents = alloc::vec![0; len];
+    let mut bytes_read = 0;
+    while bytes_read < len {
+        bytes_read += read(fd, &mut contents[bytes_read..])?;
+    }
+    close(fd)?;
+    Ok(contents)
 }

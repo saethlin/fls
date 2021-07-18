@@ -220,6 +220,15 @@ pub fn readlinkat<'a>(fd: c_int, name: CStr, buf: &'a mut [u8]) -> Result<&'a [u
 }
 
 #[inline]
+pub fn gettimeofday() -> Result<libc::timeval, Error> {
+    let mut tv = libc::timeval {
+        tv_sec: 0,
+        tv_usec: 0,
+    };
+    unsafe { syscall!(GETTIMEOFDAY, &mut tv as *mut libc::timeval, 0) }.to_result_with(tv)
+}
+
+#[inline]
 pub fn winsize() -> Result<libc::winsize, Error> {
     unsafe {
         let mut winsize: libc::winsize = mem::zeroed();

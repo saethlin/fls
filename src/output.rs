@@ -1,7 +1,7 @@
 use crate::{
     cli::App,
     directory::DirEntryExt,
-    utils::Buffer,
+    utils::{memcpy, Buffer},
     veneer::{syscalls, CStr, DirEntry, Directory},
     Pool, Status, Style,
 };
@@ -75,7 +75,7 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
     inode_len = buf.format(inode_len as u64).len();
     blocks_len = buf.format(blocks_len as u64).len();
 
-    let current_time = unsafe { libc::time(core::ptr::null_mut()) };
+    let current_time = syscalls::gettimeofday().unwrap().tv_sec;
     let one_year = 365 * 24 * 60 * 60;
 
     for direntry in entries {
@@ -136,11 +136,7 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
             .style(Style::GreenBold)
             .align_right(status.size as u64, largest_size);
 
-        let localtime = unsafe {
-            let mut localtime = core::mem::zeroed();
-            libc::localtime_r(&status.time, &mut localtime);
-            localtime
-        };
+        let localtime = app.tzinfo.convert_to_localtime(status.time);
 
         print!(app, " ", Style::Blue, month_abbr(localtime.tm_mon), " ");
 
@@ -594,7 +590,7 @@ impl OutputBuffer {
             self.flush();
         }
         let end = self.buf_used + bytes.len();
-        self.buf[self.buf_used..end].copy_from_slice(bytes);
+        memcpy(&mut self.buf[self.buf_used..end], bytes);
         self.buf_used += bytes.len();
         self
     }
@@ -630,6 +626,13 @@ impl OutputBuffer {
         }
         self.write(formatted);
         self
+    }
+}
+
+impl core::fmt::Write for OutputBuffer {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        self.write(s.as_bytes());
+        Ok(())
     }
 }
 
