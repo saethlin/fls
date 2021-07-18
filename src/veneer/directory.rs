@@ -30,7 +30,7 @@ impl<'a> Directory {
     pub fn read(&self) -> Result<DirectoryContents, crate::Error> {
         use alloc::alloc::{alloc, realloc, Layout};
         unsafe {
-            let chunk_size = 32768;
+            let chunk_size = 4096;
 
             let mut layout = Layout::from_size_align_unchecked(
                 chunk_size,

@@ -26,22 +26,30 @@ impl Allocator {
     }
 }
 
-unsafe impl Sync for Allocator {}
+fn round_to_page(layout: Layout) -> Layout {
+    let remainder = layout.size() % 4096;
+    let size = if remainder == 0 {
+        layout.size()
+    } else {
+        layout.size() + 4096 - remainder
+    };
+    Layout::from_size_align(size, layout.align()).unwrap()
+}
 
 unsafe impl GlobalAlloc for Allocator {
     unsafe fn alloc(&self, mut layout: Layout) -> *mut u8 {
-        if layout.size() < 4096 {
-            layout = Layout::from_size_align_unchecked(4096, layout.align());
-        }
+        layout = round_to_page(layout);
 
         let mut cache = self.cache.lock();
 
-        // Look for an unused allocation in the cache that is already big enough
-        for (is_used, ptr, len) in cache.iter_mut() {
-            if !*is_used && *len >= layout.size() {
-                *is_used = true;
-                return *ptr;
-            }
+        // Find the closest fit
+        if let Some((is_used, ptr, _)) = cache
+            .iter_mut()
+            .filter(|(is_used, _, len)| !*is_used && *len >= layout.size())
+            .min_by_key(|(_, _, len)| *len - layout.size())
+        {
+            *is_used = true;
+            return *ptr;
         }
 
         // We didn't find a mapping that's already big enough, look for one that we can resize
@@ -66,9 +74,7 @@ unsafe impl GlobalAlloc for Allocator {
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, mut layout: Layout) {
-        if layout.size() < 4096 {
-            layout = Layout::from_size_align_unchecked(4096, layout.align());
-        }
+        layout = round_to_page(layout);
 
         let mut cache = self.cache.lock();
 
@@ -92,14 +98,15 @@ unsafe impl GlobalAlloc for Allocator {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, mut layout: Layout, mut new_size: usize) -> *mut u8 {
-        if layout.size() < 4096 {
-            layout = Layout::from_size_align_unchecked(layout.size(), 4096);
-        }
-        if new_size < 4096 {
-            new_size = 4096;
-        }
+        layout = round_to_page(layout);
+        let remainder = new_size % 4096;
+        new_size = if remainder == 0 {
+            new_size
+        } else {
+            new_size + 4096 - remainder
+        };
 
-        if layout.size() > new_size {
+        if layout.size() >= new_size {
             return ptr;
         }
 

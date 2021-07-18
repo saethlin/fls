@@ -12,6 +12,8 @@ pub struct SpinLock<T> {
     contents: UnsafeCell<T>,
 }
 
+unsafe impl<T> Sync for SpinLock<T> {}
+
 pub struct SpinLockGuard<'a, T> {
     lock: &'a SpinLock<T>,
 }
