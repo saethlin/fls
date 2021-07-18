@@ -5,9 +5,9 @@ A nearly POSIX-compliant `ls` that's smaller, faster, and prettier than GNU's.
 
 | ls -R / --color=never > /dev/null  | Wall time (s) |
 | ------------- | ------------- |
-| fls | 1.41 |
-| GNU ls  | 1.79  |
-| exa  | 4.59 |
+| fls | 0.66 |
+| GNU ls  | 1.22  |
+| exa  | 3.61 |
 | lsd  | >1000  |
 
 ## But How?
