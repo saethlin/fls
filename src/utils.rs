@@ -5,6 +5,7 @@ use crate::{
 use alloc::vec::Vec;
 use core::{ptr, slice};
 
+#[cfg(not(feature = "link-libc"))]
 pub fn atoi(digits: &[u8]) -> u64 {
     let mut num = 0;
     for &c in digits {
@@ -76,7 +77,7 @@ pub fn memcpy(dst: &mut [u8], src: &[u8]) {
         let mut dst = dst.as_mut_ptr() as *mut u32;
         let mut src = src.as_ptr() as *const u32;
 
-        while end > src {
+        while end > src.add(1) {
             dst.write_unaligned(src.read_unaligned());
             dst = dst.add(1);
             src = src.add(1);

@@ -11,6 +11,9 @@ unicode-segmentation = "1.8"
 sc = "0.2"
 bitflags = "1"
 
+[features]
+link-libc = []
+
 [profile.dev]
 panic = "abort"
 

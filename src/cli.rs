@@ -1,6 +1,5 @@
 use crate::{
     output::OutputBuffer,
-    utils::atoi,
     veneer::{syscalls::*, CStr, Error},
 };
 use alloc::vec::Vec;
@@ -28,12 +27,17 @@ pub struct App {
 
     pub args: Vec<CStr<'static>>,
 
+    #[cfg(not(feature = "link-libc"))]
     etc_passwd: &'static [u8],
+    #[cfg(not(feature = "link-libc"))]
     uid_names: Vec<(u32, (usize, usize))>,
+    #[cfg(not(feature = "link-libc"))]
     etc_group: &'static [u8],
+    #[cfg(not(feature = "link-libc"))]
     gid_names: Vec<(u32, (usize, usize))>,
 
-    pub tzinfo: crate::time::Tzinfo,
+    #[cfg(not(feature = "link-libc"))]
+    tzinfo: Option<crate::time::Tzinfo>,
 
     pub needs_details: bool,
 }
@@ -97,7 +101,9 @@ pub enum DisplayMode {
 
 impl App {
     #[inline(never)]
-    pub fn from_arguments(raw_args: Vec<CStr<'static>>) -> Result<Self, crate::Error> {
+    pub fn from_arguments(
+        raw_args: impl Iterator<Item = CStr<'static>>,
+    ) -> Result<Self, crate::Error> {
         let mut switches = Vec::with_capacity(16);
         let mut args_valid = true;
 
@@ -124,15 +130,20 @@ impl App {
             color: Color::Auto,
             out: OutputBuffer::to_fd(1),
             args: Vec::new(),
+            #[cfg(not(feature = "link-libc"))]
             uid_names: Vec::new(),
+            #[cfg(not(feature = "link-libc"))]
             gid_names: Vec::new(),
+            #[cfg(not(feature = "link-libc"))]
             etc_passwd: &[],
+            #[cfg(not(feature = "link-libc"))]
             etc_group: &[],
             needs_details: false,
-            tzinfo: crate::time::Tzinfo::new(),
+            #[cfg(not(feature = "link-libc"))]
+            tzinfo: None,
         };
 
-        for arg in raw_args.into_iter().skip(1) {
+        for arg in raw_args.skip(1) {
             if arg.as_bytes() == b"--" {
                 hit_only_arg_marker = true;
             } else if hit_only_arg_marker {
@@ -286,12 +297,16 @@ impl App {
             return Err(Error(-1));
         }
 
-        Self::init_id_map(
-            &b"/etc/passwd\0"[..],
-            &mut app.etc_passwd,
-            &mut app.uid_names,
-        )?;
-        Self::init_id_map(&b"/etc/group\0"[..], &mut app.etc_group, &mut app.gid_names)?;
+        #[cfg(not(feature = "link-libc"))]
+        if app.display_mode == DisplayMode::Long {
+            Self::init_id_map(
+                &b"/etc/passwd\0"[..],
+                &mut app.etc_passwd,
+                &mut app.uid_names,
+            )?;
+            Self::init_id_map(&b"/etc/group\0"[..], &mut app.etc_group, &mut app.gid_names)?;
+            app.tzinfo = Some(crate::time::Tzinfo::new());
+        }
 
         app.needs_details = app.display_mode == DisplayMode::Long
             || app.sort_field == Some(SortField::Time)
@@ -301,12 +316,36 @@ impl App {
         Ok(app)
     }
 
+    #[cfg(not(feature = "link-libc"))]
+    pub fn convert_to_localtime(&self, time: i64) -> crate::time::LocalTime {
+        self.tzinfo.as_ref().unwrap().convert_to_localtime(time)
+    }
+
+    #[cfg(feature = "link-libc")]
+    pub fn convert_to_localtime(&self, time: i64) -> crate::time::LocalTime {
+        let tm = unsafe {
+            let mut tm: libc::tm = core::mem::zeroed();
+            libc::localtime_r(&time as *const libc::time_t, &mut tm as *mut libc::tm);
+            tm
+        };
+
+        crate::time::LocalTime {
+            year: tm.tm_year,
+            month: tm.tm_mon,
+            day_of_month: tm.tm_mday,
+            hour: tm.tm_hour,
+            minute: tm.tm_min,
+        }
+    }
+
+    #[cfg(not(feature = "link-libc"))]
     #[inline(never)]
     fn init_id_map(
         path: &'static [u8],
         slab: &mut &'static [u8],
         map: &mut Vec<(u32, (usize, usize))>,
     ) -> Result<(), Error> {
+        use crate::utils::atoi;
         let contents = crate::utils::fs_read(CStr::from_bytes(path))?;
         *slab = alloc::boxed::Box::leak(contents.into_boxed_slice());
 
@@ -328,6 +367,7 @@ impl App {
         Ok(())
     }
 
+    #[cfg(not(feature = "link-libc"))]
     pub fn getpwuid(&self, uid: u32) -> &'static [u8] {
         self.uid_names
             .iter()
@@ -336,12 +376,29 @@ impl App {
             .unwrap_or_default()
     }
 
+    #[cfg(feature = "link-libc")]
+    pub fn getpwuid(&self, uid: u32) -> &'static [u8] {
+        unsafe {
+            let passwd = libc::getpwuid(uid);
+            CStr::from_ptr((*passwd).pw_name as *const u8).as_bytes()
+        }
+    }
+
+    #[cfg(not(feature = "link-libc"))]
     pub fn getgrgid(&self, gid: u32) -> &'static [u8] {
         self.gid_names
             .iter()
             .find(|(id, _)| *id == gid)
             .map(|(_id, (start, end))| &self.etc_group[*start..*end])
             .unwrap_or_default()
+    }
+
+    #[cfg(feature = "link-libc")]
+    pub fn getgrgid(&self, uid: u32) -> &'static [u8] {
+        unsafe {
+            let group = libc::getgrgid(uid);
+            CStr::from_ptr((*group).gr_name as *const u8).as_bytes()
+        }
     }
 
     pub fn convert_status(&self, status: libc::stat64) -> crate::Status {

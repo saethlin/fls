@@ -136,21 +136,21 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
             .style(Style::GreenBold)
             .align_right(status.size as u64, largest_size);
 
-        let localtime = app.tzinfo.convert_to_localtime(status.time);
+        let localtime = app.convert_to_localtime(status.time);
 
-        print!(app, " ", Style::Blue, month_abbr(localtime.tm_mon), " ");
+        print!(app, " ", Style::Blue, month_abbr(localtime.month), " ");
 
-        let day = localtime.tm_mday;
+        let day = localtime.day_of_month;
         print!(app, (day < 10).map(" "), day, " ");
 
         if current_time - status.time < one_year / 2 {
-            let hour = localtime.tm_hour;
+            let hour = localtime.hour;
             print!(app, (hour < 10).map("0"), hour, ":");
 
-            let minute = localtime.tm_min;
+            let minute = localtime.minute;
             print!(app, (minute < 10).map("0"), minute);
         } else {
-            print!(app, " ", localtime.tm_year + 1900);
+            print!(app, " ", localtime.year + 1900);
         }
 
         app.out.push(b' ');
@@ -240,7 +240,7 @@ pub fn write_grid(
     styles.clear();
     styles.reserve(entries.len());
 
-    let max_possible_columns = terminal_width / 3;
+    let max_possible_columns = core::cmp::min(terminal_width / 3, entries.len());
 
     let mut layouts = core::mem::take(&mut pool.layouts);
     layouts.clear();

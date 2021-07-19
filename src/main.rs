@@ -1,6 +1,6 @@
 #![no_main]
 #![no_std]
-#![feature(alloc_error_handler)]
+#![feature(alloc_error_handler, asm, naked_functions)]
 #![allow(
     clippy::enum_glob_use,
     clippy::option_if_let_else,
@@ -53,6 +53,8 @@ mod veneer;
 
 #[macro_use]
 pub mod output;
+#[cfg(not(feature = "link-libc"))]
+mod builtins;
 mod cli;
 mod directory;
 mod style;
@@ -65,18 +67,34 @@ use output::*;
 use style::Style;
 use veneer::{directory::DType, syscalls, CStr, Error};
 
-#[no_mangle]
-unsafe extern "C" fn main(argc: isize, argv: *const *const u8) -> i32 {
-    let arguments = (0..argc).map(|i| CStr::from_ptr(*argv.offset(i))).collect();
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+compile_error!("This program is only implemented for x86_64 and aarch64");
 
-    match run(arguments) {
+#[cfg(all(not(feature = "link-libc"), target_arch = "x86_64"))]
+#[no_mangle]
+#[naked]
+pub unsafe extern "C" fn _start() {
+    // Just move argc and argv into the right registers and call main
+    asm!(
+        "mov rdi, [rsp]", // The value of rsp is actually a pointer to argc
+        "mov rsi, rsp",
+        "add rsi, 8", // But for argv we just increment the rsp pointer by 1 (offset by 8)
+        "call main",
+        options(noreturn)
+    )
+}
+
+#[no_mangle]
+unsafe extern "C" fn main(argc: isize, argv: *const *const u8) {
+    let ret = match run((0..argc).map(|i| CStr::from_ptr(*argv.offset(i)))) {
         Ok(()) => 0,
         Err(e) => e.0 as i32,
-    }
+    };
+    veneer::syscalls::exit(ret);
 }
 
 #[inline(never)]
-fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
+fn run(args: impl Iterator<Item = CStr<'static>>) -> Result<(), Error> {
     let mut app = cli::App::from_arguments(args)?;
 
     let mut dirs = Vec::new();
@@ -158,7 +176,7 @@ fn run(args: Vec<CStr<'static>>) -> Result<(), Error> {
     }
 
     for (n, (name, dir)) in dirs.iter().enumerate() {
-        let mut path = Vec::with_capacity(1024);
+        let mut path = Vec::new();
         path.extend(name.as_bytes());
         let status = syscalls::fstat(dir.raw_fd()).unwrap();
         let mut stack = vec![(status.st_dev, status.st_ino)];

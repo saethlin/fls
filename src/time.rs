@@ -130,6 +130,14 @@ pub struct Tzinfo {
     tzh_typecnt: Vec<Ttinfo>,
 }
 
+pub struct LocalTime {
+    pub year: i32,
+    pub month: i32,
+    pub day_of_month: i32,
+    pub hour: i32,
+    pub minute: i32,
+}
+
 impl Tzinfo {
     pub fn new() -> Self {
         let zi = crate::utils::fs_read(CStr::from_bytes(&b"/etc/localtime\0"[..])).unwrap();
@@ -138,36 +146,18 @@ impl Tzinfo {
     }
 
     fn gmt_offset(&self, time: i64) -> i64 {
-        let mut best = 0;
-        let mut best_idx = 0;
-        for t in 0..self.tzh_timecnt_data.len() {
-            let transition = self.tzh_timecnt_data[t];
-            if transition < time && transition > best {
-                best = transition;
-                best_idx = t;
-            }
-        }
+        let best_idx = match self.tzh_timecnt_data.binary_search(&time) {
+            Ok(i) => i - 1,
+            Err(i) => i,
+        };
         let idx = self.tzh_timecnt_indices[best_idx] as usize;
         self.tzh_typecnt[idx].tt_gmtoff as i64
     }
 
     // Ported from musl's localtime_r impl
-    pub fn convert_to_localtime(&self, t: i64) -> libc::tm {
+    #[inline(never)]
+    pub fn convert_to_localtime(&self, t: i64) -> LocalTime {
         let t = t + self.gmt_offset(t);
-
-        let mut tm = libc::tm {
-            tm_sec: 0,
-            tm_min: 0,
-            tm_hour: 0,
-            tm_mday: 0,
-            tm_mon: 0,
-            tm_year: 0,
-            tm_wday: 0,
-            tm_yday: 0,
-            tm_isdst: 0,
-            tm_gmtoff: 0,
-            tm_zone: core::ptr::null(),
-        };
 
         let secs = t - LEAPOCH;
         let mut days = secs / 86400;
@@ -175,11 +165,6 @@ impl Tzinfo {
         if remsecs < 0 {
             remsecs += 86400;
             days -= 1;
-        }
-
-        let mut wday = (3 + days) % 7;
-        if wday < 0 {
-            wday += 7;
         }
 
         let mut qc_cycles = days / DAYS_PER_400Y;
@@ -208,10 +193,6 @@ impl Tzinfo {
         remdays -= remyears * 365;
 
         let leap = !(remyears == 0) && ((q_cycles == 0) || !(c_cycles == 0));
-        let mut yday = remdays + 31 + 28 + leap as i64;
-        if yday >= 365 + leap as i64 {
-            yday -= 365 + leap as i64;
-        }
 
         let mut years = remyears + 4 * q_cycles + 100 * c_cycles + 400 * qc_cycles;
 
@@ -226,17 +207,13 @@ impl Tzinfo {
             years += 1;
         }
 
-        tm.tm_year = (years + 100).try_into().unwrap();
-        tm.tm_mon = (months + 2).try_into().unwrap();
-        tm.tm_mday = (remdays + 1).try_into().unwrap();
-        tm.tm_wday = wday.try_into().unwrap();
-        tm.tm_yday = yday.try_into().unwrap();
-
-        tm.tm_hour = (remsecs / 3600).try_into().unwrap();
-        tm.tm_min = (remsecs / 60 % 60).try_into().unwrap();
-        tm.tm_sec = (remsecs % 60).try_into().unwrap();
-
-        return tm;
+        LocalTime {
+            year: (years + 100).try_into().unwrap(),
+            month: (months + 2).try_into().unwrap(),
+            day_of_month: (remdays + 1).try_into().unwrap(),
+            hour: (remsecs / 3600).try_into().unwrap(),
+            minute: (remsecs / 60 % 60).try_into().unwrap(),
+        }
     }
 }
 

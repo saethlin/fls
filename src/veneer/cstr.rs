@@ -30,7 +30,7 @@ impl<'a> CStr<'a> {
     }
 
     #[inline]
-    pub fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &'a [u8] {
         unsafe { self.bytes.get_unchecked(..self.bytes.len() - 1) }
     }
 
