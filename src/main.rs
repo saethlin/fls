@@ -1,12 +1,6 @@
 #![no_main]
 #![no_std]
 #![feature(alloc_error_handler, asm, naked_functions)]
-#![allow(
-    clippy::enum_glob_use,
-    clippy::option_if_let_else,
-    clippy::unseparated_literal_suffix,
-    clippy::too_many_lines
-)]
 
 macro_rules! error {
     ($($item:expr),+) => {
@@ -23,7 +17,7 @@ macro_rules! error {
 fn panic(info: &core::panic::PanicInfo) -> ! {
     use core::fmt::Write;
     let mut buf = crate::output::OutputBuffer::to_fd(2);
-    let _ = write!(buf, "{}\n", info);
+    let _ = writeln!(buf, "{}", info);
     buf.flush();
     let _ = veneer::syscalls::kill(0, libc::SIGABRT);
     veneer::syscalls::exit(-1);

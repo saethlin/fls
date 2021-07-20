@@ -90,9 +90,9 @@ fn parse_data(buffer: &[u8], header: Header) -> Tzinfo {
         .collect();
 
     Tzinfo {
-        tzh_timecnt_data: tzh_timecnt_data,
+        tzh_timecnt_data,
         tzh_timecnt_indices: tzh_timecnt_indices.to_vec(),
-        tzh_typecnt: tzh_typecnt,
+        tzh_typecnt,
     }
 }
 
@@ -192,7 +192,7 @@ impl Tzinfo {
         }
         remdays -= remyears * 365;
 
-        let leap = !(remyears == 0) && ((q_cycles == 0) || !(c_cycles == 0));
+        let leap = remyears != 0 && ((q_cycles == 0) || c_cycles != 0);
 
         let mut years = remyears + 4 * q_cycles + 100 * c_cycles + 400 * qc_cycles;
 

@@ -102,7 +102,7 @@ pub fn memcmp(aa: &[u8], bb: &[u8]) -> core::cmp::Ordering {
             return a.cmp(b);
         }
     }
-    return aa.len().cmp(&bb.len());
+    aa.len().cmp(&bb.len())
 }
 
 pub fn fs_read(path: CStr<'_>) -> Result<Vec<u8>, crate::Error> {
