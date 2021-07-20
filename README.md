@@ -36,7 +36,7 @@ I say _probably_ because `fls` has always been faster than GNU's `ls`. The origi
 
 ## Sorting
 
-In addition different color behavior, `fls` also 
+In the absence of any options, `fls` sorts names using a comparsion function similar to `ls -v`, which attempts to treat runs of digits as a single number. You don't need to pad numbers in filenames to a fixed width to make them display in the intuitive order.
 
 ## POSIX features:
 
