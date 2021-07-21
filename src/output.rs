@@ -191,6 +191,13 @@ fn print_total_blocks(entries: &[(DirEntry, Option<Status>)], app: &mut App) {
     );
 }
 
+pub struct LayoutCursor {
+    column: usize,
+    left_in_this_column: usize,
+    rows: usize,
+    this_layout_width: usize,
+}
+
 pub fn write_grid(
     entries: &[(DirEntry, Option<Status>)],
     dir: &Directory,
@@ -253,19 +260,16 @@ pub fn write_grid(
         layouts.extend(core::iter::repeat(0).take(i));
         // current position, increments left until we move to the next column
         let rows = (entries.len() + i - 1) / i;
-        cursors.push((0, rows, rows));
+        cursors.push(LayoutCursor {
+            column: 0,
+            left_in_this_column: rows,
+            rows,
+            this_layout_width: (i - 1) * 2, // Initially, just the 2 spaces between each column
+        });
         if rows == 1 {
             break;
         }
     }
-
-    /*
-    struct GridCursor {
-        column: usize,
-        left_in_this_column: usize,
-        rows: usize,
-    }
-    */
 
     for entry in entries {
         let style = entry.style(dir, app);
@@ -277,29 +281,25 @@ pub fn write_grid(
         for i in (0..cursors.len()).rev() {
             let layout_start = sum_to(i + 1) - 1;
 
-            let cols = i + 2;
-            let current = &mut layouts[layout_start + cursors[i].0];
-            // TODO: Do this sum continuously instead of repeating the whole sum on each iteration
-            *current = (*current).max(len);
-            let this_layout_width = layouts[layout_start..layout_start + i + 2]
-                .iter()
-                .copied()
-                .sum::<usize>()
-                + 2 * (cols - 1);
+            let current = &mut layouts[layout_start + cursors[i].column];
+            if len > *current {
+                cursors[i].this_layout_width += len - *current;
+                *current = len;
+            }
 
-            if this_layout_width > terminal_width {
+            if cursors[i].this_layout_width > terminal_width {
                 cursors.pop();
             } else {
-                cursors[i].1 -= 1;
-                if cursors[i].1 == 0 {
-                    cursors[i].0 += 1;
-                    cursors[i].1 = cursors[i].2;
+                cursors[i].left_in_this_column -= 1;
+                if cursors[i].left_in_this_column == 0 {
+                    cursors[i].column += 1;
+                    cursors[i].left_in_this_column = cursors[i].rows;
                 }
             }
         }
     }
 
-    let rows = cursors.last().map(|c| c.2).unwrap_or(entries.len());
+    let rows = cursors.last().map(|c| c.rows).unwrap_or(entries.len());
 
     let mut widths = core::mem::take(&mut pool.widths);
     widths.clear();

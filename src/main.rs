@@ -223,7 +223,7 @@ pub struct Pool {
     pub lengths: Vec<usize>,
     pub styles: Vec<(Style, Option<u8>)>,
     pub layouts: Vec<usize>,
-    pub cursors: Vec<(usize, usize, usize)>,
+    pub cursors: Vec<crate::output::LayoutCursor>,
     pub widths: Vec<usize>,
 }
 
