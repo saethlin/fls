@@ -451,23 +451,10 @@ impl Writable for &[u8] {
     }
 }
 
-macro_rules! array_impl {
-    ($($N:expr)+) => {
-        $(
-            impl Writable for &[u8; $N] {
-                fn write(&self, out: &mut OutputBuffer) {
-                    out.write(*self);
-                }
-            }
-        )+
+impl<const N: usize> Writable for &[u8; N] {
+    fn write(&self, out: &mut OutputBuffer) {
+        out.write(*self);
     }
-}
-
-array_impl! {
-     0  1  2  3  4  5  6  7  8  9
-    10 11 12 13 14 15 16 17 18 19
-    20 21 22 23 24 25 26 27 28 29
-    30 31 32 33
 }
 
 impl Writable for &str {
@@ -589,9 +576,13 @@ impl OutputBuffer {
         if bytes.len() + self.buf_used >= self.buf.len() {
             self.flush();
         }
-        let end = self.buf_used + bytes.len();
-        memcpy(&mut self.buf[self.buf_used..end], bytes);
-        self.buf_used += bytes.len();
+        if bytes.len() > self.buf.len() {
+            write_all(bytes, self.fd);
+        } else {
+            let end = self.buf_used + bytes.len();
+            memcpy(&mut self.buf[self.buf_used..end], bytes);
+            self.buf_used += bytes.len();
+        }
         self
     }
 
@@ -647,6 +638,7 @@ impl Drop for OutputBuffer {
     }
 }
 
+#[inline(never)]
 fn write_all(bytes: &[u8], fd: i32) {
     let mut bytes_written = 0;
     while bytes_written < bytes.len() {

@@ -95,8 +95,15 @@ fn run(args: impl Iterator<Item = CStr<'static>>) -> Result<(), Error> {
     let mut files = Vec::new();
     let mut pool = Pool::default();
 
+    let default_args = &[CStr::from_bytes(b".\0")];
+    let args = if app.args.is_empty() {
+        default_args
+    } else {
+        app.args.as_slice()
+    };
+
     if app.list_directory_contents {
-        for arg in app.args.clone() {
+        for arg in args.into_iter().cloned() {
             match veneer::Directory::open(arg) {
                 Ok(d) => dirs.push((arg, d)),
                 Err(Error(20)) => files.push((
@@ -124,7 +131,7 @@ fn run(args: impl Iterator<Item = CStr<'static>>) -> Result<(), Error> {
             }
         }
     } else {
-        for arg in app.args.clone() {
+        for arg in args.into_iter().cloned() {
             files.push((
                 crate::veneer::directory::DirEntry {
                     name: arg,

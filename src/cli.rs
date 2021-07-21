@@ -104,7 +104,8 @@ impl App {
     pub fn from_arguments(
         raw_args: impl Iterator<Item = CStr<'static>>,
     ) -> Result<Self, crate::Error> {
-        let mut switches = Vec::with_capacity(16);
+        let mut print_version = false;
+        let mut switches = Vec::new();
         let mut args_valid = true;
 
         let mut hit_only_arg_marker = false;
@@ -154,6 +155,7 @@ impl App {
                     b"--color=never" => app.color = Color::Never,
                     b"--color=auto" => app.color = Color::Auto,
                     b"--color=always" => app.color = Color::Always,
+                    b"--version" => print_version = true,
                     _ => error!("unrecognized option \'", arg, "\'\n"),
                 }
             // Things like -R
@@ -162,9 +164,6 @@ impl App {
             } else {
                 app.args.push(arg);
             }
-        }
-        if app.args.is_empty() {
-            app.args.push(CStr::from_bytes(b".\0"));
         }
 
         #[allow(non_snake_case)]
@@ -278,6 +277,21 @@ impl App {
             }
         }
 
+        if !args_valid {
+            return Err(Error(-1));
+        }
+
+        if print_version {
+            app.out
+                .write(b"fls ")
+                .write(env!("CARGO_PKG_VERSION").as_bytes())
+                .write(b" ")
+                .write(git_version::git_version!(prefix = "git:").as_bytes())
+                .write(b"\n")
+                .flush();
+            exit(0);
+        }
+
         let terminal_width = winsize().ok().map(|d| d.ws_col as usize);
 
         match (terminal_width, app.display_mode) {
@@ -291,10 +305,6 @@ impl App {
         }
         if app.color == Color::Never {
             app.out.color = false;
-        }
-
-        if !args_valid {
-            return Err(Error(-1));
         }
 
         #[cfg(not(feature = "link-libc"))]
