@@ -5,7 +5,7 @@ use crate::{
 use alloc::vec::Vec;
 use core::{ptr, slice};
 
-#[cfg(not(feature = "link-libc"))]
+#[cfg(feature = "no-libc")]
 pub fn atoi(digits: &[u8]) -> u64 {
     let mut num = 0;
     for &c in digits {

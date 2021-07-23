@@ -9,13 +9,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
+name = "compiler_builtins"
+version = "0.1.47"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd4ed89e0a5c3e50b15c0045fbe1ff8567b703bc07544faf935ddff0aaa7b65f"
+
+[[package]]
 name = "fls"
 version = "0.1.0"
 dependencies = [
  "bitflags",
+ "compiler_builtins",
  "git-version",
  "libc",
  "sc",
+ "tinyvec",
  "unicode-segmentation",
 ]
 
@@ -87,6 +95,21 @@ dependencies = [
  "quote",
  "unicode-xid",
 ]
+
+[[package]]
+name = "tinyvec"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "848a1e1181b9f6753b5e96a092749e29b11d19ede67dfbbd6c7dc7e0f49b5338"
+dependencies = [
+ "tinyvec_macros",
+]
+
+[[package]]
+name = "tinyvec_macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "unicode-segmentation"

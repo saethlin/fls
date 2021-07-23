@@ -41,10 +41,13 @@ static STYLES: &[(&[&str], &str)] = &[
 use std::io::Write;
 
 fn main() {
-    #[cfg(not(feature = "link-libc"))]
+    #[cfg(feature = "no-libc")]
     println!("cargo:rustc-link-arg=-nostartfiles");
-    #[cfg(feature = "link-libc")]
-    println!("cargo:rustc-link-arg=-lc");
+    #[cfg(feature = "no-libc")]
+    println!("cargo:rustc-link-arg=-nodefaultlibs");
+
+    #[cfg(not(feature = "no-libc"))]
+    println!("cargo:rustc-link-lib=c");
 
     let mut all_styles = Vec::new();
     for (extensions, style) in STYLES {

@@ -347,6 +347,8 @@ pub fn write_grid(
         app.out.style(Style::Reset).push(b'\n');
     }
 
+    app.out.flush();
+
     pool.lengths = lengths;
     pool.styles = styles;
     pool.widths = widths;

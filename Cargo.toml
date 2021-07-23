@@ -11,9 +11,12 @@ unicode-segmentation = "1.8"
 sc = "0.2"
 bitflags = "1"
 git-version = "0.3"
+tinyvec = { version = "1", features = ["alloc"] }
+compiler_builtins = { version = "0.1", features = ["mem"], optional = true }
 
 [features]
-link-libc = []
+default = ["no-libc"]
+no-libc = ["compiler_builtins"]
 
 [profile.dev]
 panic = "abort"

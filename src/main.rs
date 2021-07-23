@@ -47,8 +47,6 @@ mod veneer;
 
 #[macro_use]
 pub mod output;
-#[cfg(not(feature = "link-libc"))]
-mod builtins;
 mod cli;
 mod directory;
 mod style;
@@ -64,7 +62,7 @@ use veneer::{directory::DType, syscalls, CStr, Error};
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
 compile_error!("This program is only implemented for x86_64 and aarch64");
 
-#[cfg(all(not(feature = "link-libc"), target_arch = "x86_64"))]
+#[cfg(all(feature = "no-libc", target_arch = "x86_64"))]
 #[no_mangle]
 #[naked]
 pub unsafe extern "C" fn _start() {

@@ -5,6 +5,12 @@ pub struct CStr<'a> {
     bytes: &'a [u8],
 }
 
+impl Default for CStr<'static> {
+    fn default() -> Self {
+        CStr::from_bytes(&[0])
+    }
+}
+
 impl<'a> CStr<'a> {
     /// # Safety
     ///

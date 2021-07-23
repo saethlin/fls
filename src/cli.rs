@@ -2,7 +2,9 @@ use crate::{
     output::OutputBuffer,
     veneer::{syscalls::*, CStr, Error},
 };
+#[cfg(feature = "no-libc")]
 use alloc::vec::Vec;
+use tinyvec::TinyVec;
 
 pub struct App {
     pub print_inode: bool,
@@ -25,18 +27,18 @@ pub struct App {
     pub print_group: bool,
     pub color: Color,
 
-    pub args: Vec<CStr<'static>>,
+    pub args: TinyVec<[CStr<'static>; 1]>,
 
-    #[cfg(not(feature = "link-libc"))]
+    #[cfg(feature = "no-libc")]
     etc_passwd: &'static [u8],
-    #[cfg(not(feature = "link-libc"))]
+    #[cfg(feature = "no-libc")]
     uid_names: Vec<(u32, (usize, usize))>,
-    #[cfg(not(feature = "link-libc"))]
+    #[cfg(feature = "no-libc")]
     etc_group: &'static [u8],
-    #[cfg(not(feature = "link-libc"))]
+    #[cfg(feature = "no-libc")]
     gid_names: Vec<(u32, (usize, usize))>,
 
-    #[cfg(not(feature = "link-libc"))]
+    #[cfg(feature = "no-libc")]
     tzinfo: Option<crate::time::Tzinfo>,
 
     pub needs_details: bool,
@@ -105,7 +107,7 @@ impl App {
         raw_args: impl Iterator<Item = CStr<'static>>,
     ) -> Result<Self, crate::Error> {
         let mut print_version = false;
-        let mut switches = Vec::new();
+        let mut switches: TinyVec<[u8; 24]> = TinyVec::new();
         let mut args_valid = true;
 
         let mut hit_only_arg_marker = false;
@@ -130,17 +132,17 @@ impl App {
             print_group: true,
             color: Color::Auto,
             out: OutputBuffer::to_fd(1),
-            args: Vec::new(),
-            #[cfg(not(feature = "link-libc"))]
+            args: TinyVec::new(),
+            #[cfg(feature = "no-libc")]
             uid_names: Vec::new(),
-            #[cfg(not(feature = "link-libc"))]
+            #[cfg(feature = "no-libc")]
             gid_names: Vec::new(),
-            #[cfg(not(feature = "link-libc"))]
+            #[cfg(feature = "no-libc")]
             etc_passwd: &[],
-            #[cfg(not(feature = "link-libc"))]
+            #[cfg(feature = "no-libc")]
             etc_group: &[],
             needs_details: false,
-            #[cfg(not(feature = "link-libc"))]
+            #[cfg(feature = "no-libc")]
             tzinfo: None,
         };
 
@@ -307,7 +309,7 @@ impl App {
             app.out.color = false;
         }
 
-        #[cfg(not(feature = "link-libc"))]
+        #[cfg(feature = "no-libc")]
         if app.display_mode == DisplayMode::Long {
             Self::init_id_map(
                 &b"/etc/passwd\0"[..],
@@ -326,12 +328,12 @@ impl App {
         Ok(app)
     }
 
-    #[cfg(not(feature = "link-libc"))]
+    #[cfg(feature = "no-libc")]
     pub fn convert_to_localtime(&self, time: i64) -> crate::time::LocalTime {
         self.tzinfo.as_ref().unwrap().convert_to_localtime(time)
     }
 
-    #[cfg(feature = "link-libc")]
+    #[cfg(not(feature = "no-libc"))]
     pub fn convert_to_localtime(&self, time: i64) -> crate::time::LocalTime {
         let tm = unsafe {
             let mut tm: libc::tm = core::mem::zeroed();
@@ -348,7 +350,7 @@ impl App {
         }
     }
 
-    #[cfg(not(feature = "link-libc"))]
+    #[cfg(feature = "no-libc")]
     #[inline(never)]
     fn init_id_map(
         path: &'static [u8],
@@ -377,7 +379,7 @@ impl App {
         Ok(())
     }
 
-    #[cfg(not(feature = "link-libc"))]
+    #[cfg(feature = "no-libc")]
     pub fn getpwuid(&self, uid: u32) -> &'static [u8] {
         self.uid_names
             .iter()
@@ -386,7 +388,7 @@ impl App {
             .unwrap_or_default()
     }
 
-    #[cfg(feature = "link-libc")]
+    #[cfg(not(feature = "no-libc"))]
     pub fn getpwuid(&self, uid: u32) -> &'static [u8] {
         unsafe {
             let passwd = libc::getpwuid(uid);
@@ -394,7 +396,7 @@ impl App {
         }
     }
 
-    #[cfg(not(feature = "link-libc"))]
+    #[cfg(feature = "no-libc")]
     pub fn getgrgid(&self, gid: u32) -> &'static [u8] {
         self.gid_names
             .iter()
@@ -403,7 +405,7 @@ impl App {
             .unwrap_or_default()
     }
 
-    #[cfg(feature = "link-libc")]
+    #[cfg(not(feature = "no-libc"))]
     pub fn getgrgid(&self, uid: u32) -> &'static [u8] {
         unsafe {
             let group = libc::getgrgid(uid);
