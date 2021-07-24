@@ -76,6 +76,21 @@ pub unsafe extern "C" fn _start() {
     )
 }
 
+#[cfg(all(feature = "no-libc", target_arch = "aarch64"))]
+#[no_mangle]
+#[naked]
+pub unsafe extern "C" fn _start() {
+    // Just move argc and argv into the right registers and call main
+    asm!(
+        "ldr x0, [sp]",
+        "mov x1, sp",
+        "add x1, x1, 0x8",
+        "bl main",
+        options(noreturn)
+    )
+}
+
+
 #[no_mangle]
 unsafe extern "C" fn main(argc: isize, argv: *const *const u8) {
     let ret = match run((0..argc).map(|i| CStr::from_ptr(*argv.offset(i)))) {
