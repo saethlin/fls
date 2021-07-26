@@ -147,8 +147,8 @@ impl Tzinfo {
 
     fn gmt_offset(&self, time: i64) -> i64 {
         let best_idx = match self.tzh_timecnt_data.binary_search(&time) {
-            Ok(i) => i - 1,
-            Err(i) => i,
+            Ok(i) => i,
+            Err(i) => i + 1,
         };
         let idx = self.tzh_timecnt_indices[best_idx] as usize;
         self.tzh_typecnt[idx].tt_gmtoff as i64
@@ -176,19 +176,19 @@ impl Tzinfo {
 
         let mut c_cycles = remdays / DAYS_PER_100Y;
         if c_cycles == 4 {
-            c_cycles -= 1
+            c_cycles -= 1;
         }
         remdays -= c_cycles * DAYS_PER_100Y;
 
         let mut q_cycles = remdays / DAYS_PER_4Y;
         if q_cycles == 25 {
-            q_cycles -= 1
+            q_cycles -= 1;
         }
         remdays -= q_cycles * DAYS_PER_4Y;
 
         let mut remyears = remdays / 365;
         if remyears == 4 {
-            remyears -= 1
+            remyears -= 1;
         }
         remdays -= remyears * 365;
 

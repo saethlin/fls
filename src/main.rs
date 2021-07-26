@@ -1,71 +1,51 @@
-#![no_main]
 #![no_std]
-#![feature(alloc_error_handler, asm, naked_functions)]
-
-macro_rules! error {
-    ($($item:expr),+) => {
-        {
-            use crate::output::Writable;
-            let mut buf = crate::output::OutputBuffer::to_fd(2);
-            $($item.write(&mut buf);)*
-            buf.flush();
-        }
-    };
-}
-
-#[panic_handler]
-fn panic(info: &core::panic::PanicInfo) -> ! {
-    use core::fmt::Write;
-    let mut buf = crate::output::OutputBuffer::to_fd(2);
-    let _ = writeln!(buf, "{}", info);
-    buf.flush();
-    let _ = veneer::syscalls::kill(0, libc::SIGABRT);
-    veneer::syscalls::exit(-1);
-    loop {}
-}
-
-#[alloc_error_handler]
-fn alloc_error(layout: core::alloc::Layout) -> ! {
-    error!(
-        "Unable to allocate, size: ",
-        crate::utils::Buffer::new().format(layout.size() as u64),
-        "\n"
-    );
-    let _ = veneer::syscalls::kill(0, libc::SIGABRT);
-    veneer::syscalls::exit(-1);
-    loop {}
-}
-
-#[global_allocator]
-static ALLOC: veneer::Allocator = veneer::Allocator::new();
+#![no_main]
+#![feature(default_alloc_error_handler, asm, naked_functions, lang_items)]
 
 extern crate alloc;
-use alloc::{vec, vec::Vec};
-
-// Temporariliy pasting veneer's code into this crate until veneer is more complete
-mod veneer;
 
 #[macro_use]
-pub mod output;
+mod output;
 mod cli;
 mod directory;
 mod style;
 mod time;
 mod utils;
 
-use cli::{DisplayMode, ShowAll, SortField};
-use directory::DirEntryExt;
-use output::*;
-use style::Style;
-use veneer::{directory::DType, syscalls, CStr, Error};
+use crate::{
+    cli::{App, DisplayMode, ShowAll, SortField},
+    directory::{DirEntry, DirEntryExt},
+    output::*,
+    style::Style,
+};
+use alloc::{vec, vec::Vec};
+use veneer::{
+    fs::{DType, Directory},
+    syscalls, CStr, Error,
+};
+
+#[lang = "eh_personality"]
+#[no_mangle]
+pub extern "C" fn eh_personality() {}
+
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    use core::fmt::Write;
+    let _ = core::writeln!(&mut crate::output::OutputBuffer::to_fd(2), "{}", info);
+    let _ = crate::syscalls::kill(0, libc::SIGABRT);
+    crate::syscalls::exit(-1)
+}
+
+#[cfg(not(target_os = "linux"))]
+compile_error!("This crate is only implemented for linux");
 
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-compile_error!("This program is only implemented for x86_64 and aarch64");
+compile_error!("This crate is only implemented for x86_64 and aarch64");
 
-#[cfg(all(feature = "no-libc", target_arch = "x86_64"))]
+#[cfg(target_arch = "x86_64")]
 #[no_mangle]
 #[naked]
-pub unsafe extern "C" fn _start() {
+unsafe extern "C" fn _start() {
     // Just move argc and argv into the right registers and call main
     asm!(
         "mov rdi, [rsp]", // The value of rsp is actually a pointer to argc
@@ -76,10 +56,10 @@ pub unsafe extern "C" fn _start() {
     )
 }
 
-#[cfg(all(feature = "no-libc", target_arch = "aarch64"))]
+#[cfg(target_arch = "aarch64")]
 #[no_mangle]
 #[naked]
-pub unsafe extern "C" fn _start() {
+unsafe extern "C" fn _start() {
     // Just move argc and argv into the right registers and call main
     asm!(
         "ldr x0, [sp]",
@@ -90,19 +70,17 @@ pub unsafe extern "C" fn _start() {
     )
 }
 
-
 #[no_mangle]
-unsafe extern "C" fn main(argc: isize, argv: *const *const u8) {
+unsafe extern "C" fn main(argc: isize, argv: *const *const u8) -> ! {
     let ret = match run((0..argc).map(|i| CStr::from_ptr(*argv.offset(i)))) {
         Ok(()) => 0,
         Err(e) => e.0 as i32,
     };
-    veneer::syscalls::exit(ret);
+    veneer::syscalls::exit(ret)
 }
 
-#[inline(never)]
 fn run(args: impl Iterator<Item = CStr<'static>>) -> Result<(), Error> {
-    let mut app = cli::App::from_arguments(args)?;
+    let mut app = App::from_arguments(args)?;
 
     let mut dirs = Vec::new();
     let mut files = Vec::new();
@@ -116,11 +94,11 @@ fn run(args: impl Iterator<Item = CStr<'static>>) -> Result<(), Error> {
     };
 
     if app.list_directory_contents {
-        for arg in args.into_iter().cloned() {
-            match veneer::Directory::open(arg) {
+        for arg in args.iter().copied() {
+            match Directory::open(arg) {
                 Ok(d) => dirs.push((arg, d)),
                 Err(Error(20)) => files.push((
-                    crate::veneer::directory::DirEntry {
+                    DirEntry {
                         name: arg,
                         inode: 0,
                         d_type: DType::UNKNOWN,
@@ -128,11 +106,11 @@ fn run(args: impl Iterator<Item = CStr<'static>>) -> Result<(), Error> {
                     None,
                 )),
                 Err(_) => {
-                    if let Err(err) = veneer::syscalls::stat(arg) {
+                    if let Err(err) = veneer::syscalls::fstatat(libc::AT_FDCWD, arg) {
                         access_error(&arg, err);
                     } else {
                         files.push((
-                            crate::veneer::directory::DirEntry {
+                            DirEntry {
                                 name: arg,
                                 inode: 0,
                                 d_type: DType::UNKNOWN,
@@ -144,9 +122,9 @@ fn run(args: impl Iterator<Item = CStr<'static>>) -> Result<(), Error> {
             }
         }
     } else {
-        for arg in args.into_iter().cloned() {
+        for arg in args.iter().copied() {
             files.push((
-                crate::veneer::directory::DirEntry {
+                DirEntry {
                     name: arg,
                     inode: 0,
                     d_type: DType::UNKNOWN,
@@ -157,7 +135,7 @@ fn run(args: impl Iterator<Item = CStr<'static>>) -> Result<(), Error> {
     }
 
     if !files.is_empty() {
-        let dir = veneer::Directory::open(CStr::from_bytes(b".\0")).unwrap();
+        let dir = Directory::open(CStr::from_bytes(b".\0")).unwrap();
         if app.needs_details {
             for e in &mut files {
                 let status = if app.follow_symlinks == cli::FollowSymlinks::Always {
@@ -205,7 +183,6 @@ fn run(args: impl Iterator<Item = CStr<'static>>) -> Result<(), Error> {
     Ok(())
 }
 
-use crate::{cli::App, veneer::DirEntry};
 fn sort_entries(entries: &mut [(DirEntry, Option<Status>)], app: &App) {
     if let Some(field) = app.sort_field {
         entries.sort_unstable_by(|a, b| {
@@ -236,15 +213,15 @@ pub struct Pool {
     pub lengths: Vec<usize>,
     pub styles: Vec<(Style, Option<u8>)>,
     pub layouts: Vec<usize>,
-    pub cursors: Vec<crate::output::LayoutCursor>,
+    pub cursors: Vec<LayoutCursor>,
     pub widths: Vec<usize>,
 }
 
 fn list_dir_contents(
     stack: &mut Vec<(libc::dev_t, libc::ino_t)>,
     path: &mut Vec<u8>,
-    dir: &veneer::Directory,
-    app: &mut cli::App,
+    dir: &Directory,
+    app: &mut App,
     pool: &mut Pool,
 ) {
     let contents = match dir.read() {
@@ -260,20 +237,20 @@ fn list_dir_contents(
 
     match app.show_all {
         ShowAll::No => {
-            for e in contents.iter().filter(|e| e.name.get(0) != Some(b'.')) {
-                entries.push((e, None));
+            for e in contents.iter().filter(|e| e.name().get(0) != Some(b'.')) {
+                entries.push((e.into(), None));
             }
         }
         ShowAll::Almost => {
             for e in contents.iter() {
-                if e.name.as_bytes() != b".." && e.name.as_bytes() != b"." {
-                    entries.push((e, None));
+                if e.name().as_bytes() != b".." && e.name().as_bytes() != b"." {
+                    entries.push((e.into(), None));
                 }
             }
         }
         ShowAll::Yes => {
             for e in contents.iter() {
-                entries.push((e, None));
+                entries.push((e.into(), None));
             }
         }
     }
@@ -336,7 +313,7 @@ fn list_dir_contents(
             }
             path.extend(e.name.as_bytes());
             path.push(0);
-            match veneer::Directory::open(CStr::from_bytes(path)) {
+            match Directory::open(CStr::from_bytes(path)) {
                 Ok(dir) => {
                     let status = syscalls::fstat(dir.raw_fd()).unwrap();
                     if !stack.contains(&(status.st_dev, status.st_ino)) {
@@ -361,7 +338,12 @@ fn list_dir_contents(
 
 #[inline(never)]
 fn access_error(item: &[u8], error: Error) {
-    error!("Unable to access '", item, "': OS Error ", error.0, "\n");
+    let mut out = crate::output::OutputBuffer::to_fd(2);
+    out.write(&b"Unable to access '"[..])
+        .write(item)
+        .write(&b"': OS Error "[..]);
+    error.0.write(&mut out);
+    out.push(b'\n');
 }
 
 #[derive(Default, Clone)]

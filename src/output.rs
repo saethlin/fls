@@ -1,13 +1,13 @@
 use crate::{
     cli::App,
-    directory::DirEntryExt,
-    utils::{memcpy, Buffer},
-    veneer::{syscalls, CStr, DirEntry, Directory},
+    directory::{DirEntry, DirEntryExt},
+    utils::Buffer,
     Pool, Status, Style,
 };
+use veneer::{fs::Directory, syscalls, CStr};
 
 use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR};
-use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 #[macro_export]
 macro_rules! print {
@@ -19,7 +19,7 @@ macro_rules! print {
 }
 
 fn print_rwx(app: &mut App, mode: u32, read_mask: u32, write_mask: u32, execute_mask: u32) {
-    use crate::Style::*;
+    use Style::*;
 
     if mode & read_mask > 0 {
         app.out.style(YellowBold).push(b'r');
@@ -112,7 +112,7 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
 
         app.out
             .push(b' ')
-            .style(Style::White)
+            .style(White)
             .align_right(status.links as u64, largest_links);
 
         if app.print_owner {
@@ -127,18 +127,18 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
             let group = app.getgrgid(status.gid);
             app.out
                 .push(b' ')
-                .style(Style::YellowBold)
+                .style(YellowBold)
                 .align_left(group, longest_group_len);
         }
 
         app.out
             .push(b' ')
-            .style(Style::GreenBold)
+            .style(GreenBold)
             .align_right(status.size as u64, largest_size);
 
         let localtime = app.convert_to_localtime(status.time);
 
-        print!(app, " ", Style::Blue, month_abbr(localtime.month), " ");
+        print!(app, " ", Blue, month_abbr(localtime.month), " ");
 
         let day = localtime.day_of_month;
         print!(app, (day < 10).map(" "), day, " ");
@@ -163,18 +163,18 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
             && app.color == crate::cli::Color::Always
             && syscalls::faccessat(dir.raw_fd(), e.name, libc::F_OK).is_err()
         {
-            style = Style::RedBold;
+            style = RedBold;
         }
-        print!(app, style, e.name, suffix.map(|s| (Style::White, s)));
+        print!(app, style, e.name, suffix.map(|s| (White, s)));
 
         if (mode & libc::S_IFMT) == libc::S_IFLNK {
             let mut buf = [0u8; 1024];
             if let Ok(linked_to) = syscalls::readlinkat(dir.raw_fd(), e.name, &mut buf) {
-                print!(app, Style::Gray, " -> ", Style::White, linked_to);
+                print!(app, Gray, " -> ", White, linked_to);
             }
         }
 
-        print!(app, Style::Reset, "\n");
+        print!(app, Reset, "\n");
     }
 }
 
@@ -205,6 +205,8 @@ pub fn write_grid(
     terminal_width: usize,
     pool: &mut Pool,
 ) {
+    use Style::*;
+
     if app.display_size_in_blocks {
         print_total_blocks(entries, app);
     }
@@ -325,26 +327,26 @@ pub fn write_grid(
 
             if app.print_inode {
                 app.out
-                    .style(Style::Magenta)
+                    .style(Magenta)
                     .align_right(e.inode(), inode_len)
                     .push(b' ');
             }
 
             if app.display_size_in_blocks {
                 app.out
-                    .style(Style::White)
+                    .style(White)
                     .align_right(e.blocks(), blocks_len)
                     .push(b' ');
             }
 
             app.out.style(*style);
-            print!(app, e.name(), suffix.map(|s| (Style::White, s)));
+            print!(app, e.name(), suffix.map(|s| (White, s)));
 
             for _ in 0..(width - name_len) {
                 app.out.push(b' ');
             }
         }
-        app.out.style(Style::Reset).push(b'\n');
+        app.out.style(Reset).push(b'\n');
     }
 
     app.out.flush();
@@ -438,8 +440,8 @@ fn len_utf8(bytes: &[u8]) -> usize {
         bytes.len()
     } else {
         core::str::from_utf8(bytes)
-            .map(|s| s.graphemes(true).count())
-            .unwrap_or_else(|_| bytes.len())
+            .map(|s| s.width())
+            .unwrap_or(bytes.len())
     }
 }
 
@@ -471,7 +473,7 @@ impl<'a> Writable for CStr<'a> {
     }
 }
 
-impl Writable for crate::Style {
+impl Writable for Style {
     fn write(&self, out: &mut OutputBuffer) {
         out.style(*self);
     }
@@ -582,7 +584,7 @@ impl OutputBuffer {
             write_all(bytes, self.fd);
         } else {
             let end = self.buf_used + bytes.len();
-            memcpy(&mut self.buf[self.buf_used..end], bytes);
+            self.buf[self.buf_used..end].copy_from_slice(bytes);
             self.buf_used += bytes.len();
         }
         self
@@ -646,7 +648,6 @@ fn write_all(bytes: &[u8], fd: i32) {
     while bytes_written < bytes.len() {
         bytes_written += syscalls::write(fd, &bytes[bytes_written..]).unwrap_or_else(|_| {
             syscalls::exit(-1);
-            0
         });
     }
 }

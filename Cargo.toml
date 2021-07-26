@@ -6,22 +6,17 @@ edition = "2018"
 license = "GPL-3.0-or-later"
 
 [dependencies]
+veneer = { path = "../veneer" }
 libc = "0.2"
-unicode-segmentation = "1.8"
-sc = "0.2"
-bitflags = "1"
+unicode-width = "0.1"
 git-version = "0.3"
 tinyvec = { version = "1", features = ["alloc"] }
-compiler_builtins = { version = "0.1", features = ["mem"], optional = true }
-
-[features]
-default = ["no-libc"]
-no-libc = ["compiler_builtins"]
+compiler_builtins = { version = "0.1", features = ["mem"] }
 
 [profile.dev]
 panic = "abort"
 
 [profile.release]
-debug = 1
+debug = 2
 lto = "fat"
 panic = "abort"

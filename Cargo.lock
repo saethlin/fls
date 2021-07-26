@@ -18,13 +18,12 @@ checksum = "fd4ed89e0a5c3e50b15c0045fbe1ff8567b703bc07544faf935ddff0aaa7b65f"
 name = "fls"
 version = "0.1.0"
 dependencies = [
- "bitflags",
  "compiler_builtins",
  "git-version",
  "libc",
- "sc",
  "tinyvec",
- "unicode-segmentation",
+ "unicode-width",
+ "veneer",
 ]
 
 [[package]]
@@ -112,13 +111,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
-name = "unicode-segmentation"
-version = "1.8.0"
+name = "unicode-width"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8895849a949e7845e06bd6dc1aa51731a103c42707010a5b591c0038fb73385b"
+checksum = "9337591893a19b88d8d87f2cec1e73fad5cdfd10e5a6f349f498ad6ea2ffb1e3"
 
 [[package]]
 name = "unicode-xid"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
+
+[[package]]
+name = "veneer"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "libc",
+ "sc",
+]

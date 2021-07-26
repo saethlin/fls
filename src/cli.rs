@@ -1,10 +1,17 @@
-use crate::{
-    output::OutputBuffer,
-    veneer::{syscalls::*, CStr, Error},
-};
-#[cfg(feature = "no-libc")]
+use crate::output::OutputBuffer;
 use alloc::vec::Vec;
 use tinyvec::TinyVec;
+use veneer::{syscalls::*, CStr, Error};
+
+macro_rules! error {
+    ($($item:expr),+) => {
+        {
+            use crate::output::Writable;
+            let mut buf = crate::output::OutputBuffer::to_fd(2);
+            $($item.write(&mut buf);)*
+        }
+    };
+}
 
 pub struct App {
     pub print_inode: bool,
@@ -29,16 +36,11 @@ pub struct App {
 
     pub args: TinyVec<[CStr<'static>; 1]>,
 
-    #[cfg(feature = "no-libc")]
     etc_passwd: &'static [u8],
-    #[cfg(feature = "no-libc")]
     uid_names: Vec<(u32, (usize, usize))>,
-    #[cfg(feature = "no-libc")]
     etc_group: &'static [u8],
-    #[cfg(feature = "no-libc")]
     gid_names: Vec<(u32, (usize, usize))>,
 
-    #[cfg(feature = "no-libc")]
     tzinfo: Option<crate::time::Tzinfo>,
 
     pub needs_details: bool,
@@ -53,10 +55,9 @@ pub enum Color {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TimeField {
-    Modified,
-    StatusModified,
-    Created,
     Accessed,
+    Modified,
+    StatusChanged,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -103,9 +104,7 @@ pub enum DisplayMode {
 
 impl App {
     #[inline(never)]
-    pub fn from_arguments(
-        raw_args: impl Iterator<Item = CStr<'static>>,
-    ) -> Result<Self, crate::Error> {
+    pub fn from_arguments(raw_args: impl Iterator<Item = CStr<'static>>) -> Result<Self, Error> {
         let mut print_version = false;
         let mut switches: TinyVec<[u8; 24]> = TinyVec::new();
         let mut args_valid = true;
@@ -133,16 +132,11 @@ impl App {
             color: Color::Auto,
             out: OutputBuffer::to_fd(1),
             args: TinyVec::new(),
-            #[cfg(feature = "no-libc")]
             uid_names: Vec::new(),
-            #[cfg(feature = "no-libc")]
             gid_names: Vec::new(),
-            #[cfg(feature = "no-libc")]
             etc_passwd: &[],
-            #[cfg(feature = "no-libc")]
             etc_group: &[],
             needs_details: false,
-            #[cfg(feature = "no-libc")]
             tzinfo: None,
         };
 
@@ -158,7 +152,10 @@ impl App {
                     b"--color=auto" => app.color = Color::Auto,
                     b"--color=always" => app.color = Color::Always,
                     b"--version" => print_version = true,
-                    _ => error!("unrecognized option \'", arg, "\'\n"),
+                    _ => {
+                        error!("unrecognized option \'", arg, "\'\n");
+                        args_valid = false;
+                    }
                 }
             // Things like -R
             } else if arg.get(0) == Some(b'-') {
@@ -184,7 +181,7 @@ impl App {
                 }
                 b'C' => {
                     app.display_mode = DisplayMode::Grid(0);
-                    app.grid_sort_direction = SortDirection::Horizontal;
+                    app.grid_sort_direction = SortDirection::Vertical;
                 }
                 b'F' => {
                     if !switches_contains_H_or_L {
@@ -208,7 +205,7 @@ impl App {
                     app.show_all = ShowAll::Yes;
                 }
                 b'c' => {
-                    app.time_field = TimeField::StatusModified;
+                    app.time_field = TimeField::StatusChanged;
                     app.sort_field = Some(SortField::Time);
                 }
                 b'd' => {
@@ -250,6 +247,7 @@ impl App {
                 }
                 b'q' => {
                     app.replace_unprintable_bytes = true;
+                    unimplemented!("-q is not yet implemented");
                 }
                 b'r' => {
                     app.reverse_sorting = true;
@@ -267,6 +265,7 @@ impl App {
                 }
                 b'x' => {
                     app.grid_sort_direction = SortDirection::Horizontal;
+                    unimplemented!("-x is not yet implemented");
                 }
                 b'1' => match app.display_mode {
                     DisplayMode::Long => {}
@@ -309,7 +308,6 @@ impl App {
             app.out.color = false;
         }
 
-        #[cfg(feature = "no-libc")]
         if app.display_mode == DisplayMode::Long {
             Self::init_id_map(
                 &b"/etc/passwd\0"[..],
@@ -328,29 +326,10 @@ impl App {
         Ok(app)
     }
 
-    #[cfg(feature = "no-libc")]
     pub fn convert_to_localtime(&self, time: i64) -> crate::time::LocalTime {
         self.tzinfo.as_ref().unwrap().convert_to_localtime(time)
     }
 
-    #[cfg(not(feature = "no-libc"))]
-    pub fn convert_to_localtime(&self, time: i64) -> crate::time::LocalTime {
-        let tm = unsafe {
-            let mut tm: libc::tm = core::mem::zeroed();
-            libc::localtime_r(&time as *const libc::time_t, &mut tm as *mut libc::tm);
-            tm
-        };
-
-        crate::time::LocalTime {
-            year: tm.tm_year,
-            month: tm.tm_mon,
-            day_of_month: tm.tm_mday,
-            hour: tm.tm_hour,
-            minute: tm.tm_min,
-        }
-    }
-
-    #[cfg(feature = "no-libc")]
     #[inline(never)]
     fn init_id_map(
         path: &'static [u8],
@@ -379,7 +358,6 @@ impl App {
         Ok(())
     }
 
-    #[cfg(feature = "no-libc")]
     pub fn getpwuid(&self, uid: u32) -> &'static [u8] {
         self.uid_names
             .iter()
@@ -388,29 +366,12 @@ impl App {
             .unwrap_or_default()
     }
 
-    #[cfg(not(feature = "no-libc"))]
-    pub fn getpwuid(&self, uid: u32) -> &'static [u8] {
-        unsafe {
-            let passwd = libc::getpwuid(uid);
-            CStr::from_ptr((*passwd).pw_name as *const u8).as_bytes()
-        }
-    }
-
-    #[cfg(feature = "no-libc")]
     pub fn getgrgid(&self, gid: u32) -> &'static [u8] {
         self.gid_names
             .iter()
             .find(|(id, _)| *id == gid)
             .map(|(_id, (start, end))| &self.etc_group[*start..*end])
             .unwrap_or_default()
-    }
-
-    #[cfg(not(feature = "no-libc"))]
-    pub fn getgrgid(&self, uid: u32) -> &'static [u8] {
-        unsafe {
-            let group = libc::getgrgid(uid);
-            CStr::from_ptr((*group).gr_name as *const u8).as_bytes()
-        }
     }
 
     pub fn convert_status(&self, status: libc::stat64) -> crate::Status {
@@ -427,8 +388,8 @@ impl App {
             inode: status.st_ino,
             time: match self.time_field {
                 Accessed => status.st_atime,
-                Created => status.st_ctime,
-                Modified | StatusModified => status.st_mtime,
+                Modified => status.st_mtime,
+                StatusChanged => status.st_ctime,
             },
         }
     }

@@ -21,7 +21,7 @@ These do not cover all reasonable combinations of options, but if you can find a
 
 ## "libc-less"
 
-By default `fls` does not link to anything. That's right, `fls` is smaller than GNU's `ls` implementation, even though GNU's gets to cheat by dynamically linking to a C standard library.
+`fls` does not link to anything. The (stripped) `fls` executable is smaller than GNU's (stripped) `ls` executable, even though some of the code that powers GNU's is in another file.
 
 ## smaller _and_ faster?
 

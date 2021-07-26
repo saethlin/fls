@@ -1,14 +1,32 @@
 use crate::{
     cli::{App, Color, FollowSymlinks},
     utils::memcmp,
-    veneer,
-    veneer::{directory::DType, syscalls, CStr},
     Style,
 };
+use veneer::{
+    fs::{DType, Directory},
+    syscalls, CStr,
+};
+
+pub struct DirEntry<'a> {
+    pub name: CStr<'a>,
+    pub inode: libc::c_ulong,
+    pub d_type: DType,
+}
+
+impl<'a> From<veneer::fs::DirEntry<'a>> for DirEntry<'a> {
+    fn from(other: veneer::fs::DirEntry<'a>) -> Self {
+        Self {
+            name: other.name(),
+            inode: other.inode(),
+            d_type: other.d_type(),
+        }
+    }
+}
 
 pub trait DirEntryExt {
     fn name(&self) -> CStr;
-    fn style(&self, dir: &veneer::Directory, app: &App) -> (Style, Option<u8>);
+    fn style(&self, dir: &Directory, app: &App) -> (Style, Option<u8>);
     fn inode(&self) -> u64;
     fn blocks(&self) -> u64;
     fn time(&self) -> libc::time_t;
@@ -50,7 +68,7 @@ impl EntryType {
     }
 }
 
-impl<'a> DirEntryExt for (veneer::directory::DirEntry<'a>, Option<crate::Status>) {
+impl<'a> DirEntryExt for (DirEntry<'a>, Option<crate::Status>) {
     fn name(&self) -> CStr {
         self.0.name
     }
@@ -87,10 +105,10 @@ impl<'a> DirEntryExt for (veneer::directory::DirEntry<'a>, Option<crate::Status>
         self.0.d_type
     }
 
-    fn style(&self, dir: &veneer::Directory, app: &App) -> (Style, Option<u8>) {
+    fn style(&self, dir: &veneer::fs::Directory, app: &App) -> (Style, Option<u8>) {
         use EntryType::*;
 
-        // Deduce the correct DirEntry type
+        // Deduce the correct entry type
         let entry_type = if let Some(status) = &self.1 {
             entry_type_from_status(status)
         } else if app.color == Color::Never && app.suffixes == crate::cli::Suffixes::None {
