@@ -84,7 +84,6 @@ fn run(args: impl Iterator<Item = CStr<'static>>) -> Result<(), Error> {
 
     let mut dirs = Vec::new();
     let mut files = Vec::new();
-    let mut pool = Pool::default();
 
     let default_args = &[CStr::from_bytes(b".\0")];
     let args = if app.args.is_empty() {
@@ -156,7 +155,7 @@ fn run(args: impl Iterator<Item = CStr<'static>>) -> Result<(), Error> {
         sort_entries(&mut files, &app);
 
         match app.display_mode {
-            DisplayMode::Grid(width) => write_grid(&files, &dir, &mut app, width, &mut pool),
+            DisplayMode::Grid(width) => write_grid(&files, &dir, &mut app, width),
             DisplayMode::Long => write_details(&files, &dir, &mut app),
             DisplayMode::SingleColumn => write_single_column(&files, &dir, &mut app),
             DisplayMode::Stream => write_stream(&files, &dir, &mut app),
@@ -172,7 +171,7 @@ fn run(args: impl Iterator<Item = CStr<'static>>) -> Result<(), Error> {
         path.extend(name.as_bytes());
         let status = syscalls::fstat(dir.raw_fd()).unwrap();
         let mut stack = vec![(status.st_dev, status.st_ino)];
-        list_dir_contents(&mut stack, &mut path, dir, &mut app, &mut pool);
+        list_dir_contents(&mut stack, &mut path, dir, &mut app);
         // When recursing the recursion handles newlines, if not we need to check if we're on the
         // last and print a newline
         if !app.recurse && (n != dirs.len() - 1) {
@@ -208,21 +207,11 @@ fn sort_entries(entries: &mut [(DirEntry, Option<Status>)], app: &App) {
     }
 }
 
-#[derive(Default)]
-pub struct Pool {
-    pub lengths: Vec<usize>,
-    pub styles: Vec<(Style, Option<u8>)>,
-    pub layouts: Vec<usize>,
-    pub cursors: Vec<LayoutCursor>,
-    pub widths: Vec<usize>,
-}
-
 fn list_dir_contents(
     stack: &mut Vec<(libc::dev_t, libc::ino_t)>,
     path: &mut Vec<u8>,
     dir: &Directory,
     app: &mut App,
-    pool: &mut Pool,
 ) {
     let contents = match dir.read() {
         Ok(c) => c,
@@ -279,7 +268,7 @@ fn list_dir_contents(
     sort_entries(&mut entries, app);
 
     match app.display_mode {
-        DisplayMode::Grid(width) => write_grid(&entries, dir, app, width, pool),
+        DisplayMode::Grid(width) => write_grid(&entries, dir, app, width),
         DisplayMode::Long => write_details(&entries, dir, app),
         DisplayMode::SingleColumn => write_single_column(&entries, dir, app),
         DisplayMode::Stream => write_stream(&entries, dir, app),
@@ -318,7 +307,7 @@ fn list_dir_contents(
                     let status = syscalls::fstat(dir.raw_fd()).unwrap();
                     if !stack.contains(&(status.st_dev, status.st_ino)) {
                         stack.push((status.st_dev, status.st_ino));
-                        list_dir_contents(stack, path, &dir, app, pool);
+                        list_dir_contents(stack, path, &dir, app);
                         stack.pop();
                     }
                 }

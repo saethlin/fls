@@ -2,8 +2,9 @@ use crate::{
     cli::App,
     directory::{DirEntry, DirEntryExt},
     utils::Buffer,
-    Pool, Status, Style,
+    Status, Style,
 };
+use alloc::vec::Vec;
 use veneer::{fs::Directory, syscalls, CStr};
 
 use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR};
@@ -203,7 +204,6 @@ pub fn write_grid(
     dir: &Directory,
     app: &mut App,
     terminal_width: usize,
-    pool: &mut Pool,
 ) {
     use Style::*;
 
@@ -242,21 +242,13 @@ pub fn write_grid(
 
     let sum_to = |a| a * (a + 1) / 2;
 
-    let mut lengths = core::mem::take(&mut pool.lengths);
-    lengths.clear();
-    lengths.reserve(entries.len());
-    let mut styles = core::mem::take(&mut pool.styles);
-    styles.clear();
-    styles.reserve(entries.len());
+    let mut lengths = Vec::with_capacity(entries.len());
+    let mut styles = Vec::with_capacity(entries.len());
 
     let max_possible_columns = core::cmp::min(terminal_width / 3, entries.len());
 
-    let mut layouts = core::mem::take(&mut pool.layouts);
-    layouts.clear();
-    layouts.reserve(sum_to(max_possible_columns) - 1);
-    let mut cursors = core::mem::take(&mut pool.cursors);
-    cursors.clear();
-    cursors.reserve(max_possible_columns - 1);
+    let mut layouts = Vec::with_capacity(sum_to(max_possible_columns) - 1);
+    let mut cursors = Vec::with_capacity(max_possible_columns - 1);
 
     for i in 2..=max_possible_columns {
         layouts.extend(core::iter::repeat(0).take(i));
@@ -303,8 +295,7 @@ pub fn write_grid(
 
     let rows = cursors.last().map(|c| c.rows).unwrap_or(entries.len());
 
-    let mut widths = core::mem::take(&mut pool.widths);
-    widths.clear();
+    let mut widths = Vec::new();
     widths.extend(
         lengths
             .chunks(rows)
@@ -350,12 +341,6 @@ pub fn write_grid(
     }
 
     app.out.flush();
-
-    pool.lengths = lengths;
-    pool.styles = styles;
-    pool.widths = widths;
-    pool.cursors = cursors;
-    pool.layouts = layouts;
 }
 
 pub fn write_stream(entries: &[(DirEntry, Option<Status>)], dir: &Directory, app: &mut App) {
