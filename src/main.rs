@@ -245,7 +245,13 @@ fn list_dir_contents(
     }
 
     if app.args.len() > 1 || app.recurse {
-        app.out.write(&path[..path.len() - 1]).write(b":\n");
+        if path.len() > 1 && path.last() == Some(&0) {
+            path.pop();
+        }
+        if path.len() > 1 && path.last() == Some(&b'/') {
+            path.pop();
+        }
+        app.out.write(&path).write(b":\n");
     }
 
     if app.needs_details {
