@@ -41,6 +41,7 @@ static STYLES: &[(&[&str], &str)] = &[
 use std::io::Write;
 
 fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rustc-link-arg=-nostartfiles");
 
     let mut all_styles = Vec::new();

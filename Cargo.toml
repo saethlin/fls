@@ -7,7 +7,7 @@ description = "A fast POSIX ls that doesn't require a libc"
 documentation = "https://docs.rs/fls"
 repository = "https://github.com/saethlin/fls"
 edition = "2018"
-include = ["src/**/*.rs", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**/*.rs", "build.rs", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 veneer = "0.1"
