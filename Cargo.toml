@@ -2,14 +2,17 @@
 name = "fls"
 version = "0.1.0"
 authors = ["Ben Kimock <kimockb@gmail.com>"]
-edition = "2018"
 license = "GPL-3.0-or-later"
+description = "A fast POSIX ls that doesn't require a libc"
+documentation = "https://docs.rs/fls"
+repository = "https://github.com/saethlin/fls"
+edition = "2018"
+include = ["src/**/*.rs", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-veneer = { path = "../veneer" }
+veneer = "0.1"
 libc = "0.2"
 unicode-width = "0.1"
-git-version = "0.3"
 tinyvec = { version = "1", features = ["alloc"] }
 compiler_builtins = { version = "0.1", features = ["mem"] }
 
@@ -17,6 +20,5 @@ compiler_builtins = { version = "0.1", features = ["mem"] }
 panic = "abort"
 
 [profile.release]
-debug = 2
-lto = "fat"
 panic = "abort"
+debug = 1

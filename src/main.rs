@@ -1,13 +1,11 @@
 #![no_std]
 #![no_main]
-#![feature(default_alloc_error_handler, asm, naked_functions, lang_items)]
 
 extern crate alloc;
 
-#[macro_use]
-mod output;
 mod cli;
 mod directory;
+mod output;
 mod style;
 mod time;
 mod utils;
@@ -24,63 +22,9 @@ use veneer::{
     syscalls, CStr, Error,
 };
 
-#[lang = "eh_personality"]
-#[no_mangle]
-pub extern "C" fn eh_personality() {}
-
-#[panic_handler]
-fn panic(info: &core::panic::PanicInfo) -> ! {
-    use core::fmt::Write;
-    let _ = core::writeln!(&mut crate::output::OutputBuffer::to_fd(2), "{}", info);
-    let _ = crate::syscalls::kill(0, libc::SIGABRT);
-    crate::syscalls::exit(-1)
-}
-
-#[cfg(not(target_os = "linux"))]
-compile_error!("This crate is only implemented for linux");
-
-#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-compile_error!("This crate is only implemented for x86_64 and aarch64");
-
-#[cfg(target_arch = "x86_64")]
-#[no_mangle]
-#[naked]
-unsafe extern "C" fn _start() {
-    // Just move argc and argv into the right registers and call main
-    asm!(
-        "mov rdi, [rsp]", // The value of rsp is actually a pointer to argc
-        "mov rsi, rsp",
-        "add rsi, 8", // But for argv we just increment the rsp pointer by 1 (offset by 8)
-        "call main",
-        options(noreturn)
-    )
-}
-
-#[cfg(target_arch = "aarch64")]
-#[no_mangle]
-#[naked]
-unsafe extern "C" fn _start() {
-    // Just move argc and argv into the right registers and call main
-    asm!(
-        "ldr x0, [sp]",
-        "mov x1, sp",
-        "add x1, x1, 0x8",
-        "bl main",
-        options(noreturn)
-    )
-}
-
-#[no_mangle]
-unsafe extern "C" fn main(argc: isize, argv: *const *const u8) -> ! {
-    let ret = match run((0..argc).map(|i| CStr::from_ptr(*argv.offset(i)))) {
-        Ok(()) => 0,
-        Err(e) => e.0 as i32,
-    };
-    veneer::syscalls::exit(ret)
-}
-
-fn run(args: impl Iterator<Item = CStr<'static>>) -> Result<(), Error> {
-    let mut app = App::from_arguments(args)?;
+#[veneer::main]
+fn main() -> Result<(), Error> {
+    let mut app = App::from_arguments(veneer::env::args())?;
 
     let mut dirs = Vec::new();
     let mut files = Vec::new();

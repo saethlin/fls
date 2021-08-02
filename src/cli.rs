@@ -286,8 +286,6 @@ impl App {
             app.out
                 .write(b"fls ")
                 .write(env!("CARGO_PKG_VERSION").as_bytes())
-                .write(b" ")
-                .write(git_version::git_version!(prefix = "git:").as_bytes())
                 .write(b"\n")
                 .flush();
             exit(0);
