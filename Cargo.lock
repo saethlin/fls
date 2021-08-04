@@ -20,7 +20,6 @@ version = "0.1.0"
 dependencies = [
  "compiler_builtins",
  "libc",
- "tinyvec",
  "unicode-width",
  "veneer",
 ]
@@ -36,21 +35,6 @@ name = "sc"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6c362b5ec9cd8c12544e0ad4a610855204a0f127163d122e1d2f51f249d8404"
-
-[[package]]
-name = "tinyvec"
-version = "1.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "848a1e1181b9f6753b5e96a092749e29b11d19ede67dfbbd6c7dc7e0f49b5338"
-dependencies = [
- "tinyvec_macros",
-]
-
-[[package]]
-name = "tinyvec_macros"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "unicode-width"

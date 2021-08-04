@@ -480,13 +480,13 @@ impl Writable for i64 {
 
 impl Writable for i32 {
     fn write(&self, out: &mut OutputBuffer) {
-        (*self as i64).write(out)
+        (*self as i64).write(out);
     }
 }
 
 impl Writable for u32 {
     fn write(&self, out: &mut OutputBuffer) {
-        (*self as u64).write(out)
+        (*self as u64).write(out);
     }
 }
 

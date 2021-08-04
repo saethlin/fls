@@ -1,6 +1,5 @@
 use crate::output::OutputBuffer;
 use alloc::vec::Vec;
-use tinyvec::TinyVec;
 use veneer::{syscalls::*, CStr, Error};
 
 macro_rules! error {
@@ -34,7 +33,7 @@ pub struct App {
     pub print_group: bool,
     pub color: Color,
 
-    pub args: TinyVec<[CStr<'static>; 1]>,
+    pub args: Vec<CStr<'static>>,
 
     etc_passwd: &'static [u8],
     uid_names: Vec<(u32, (usize, usize))>,
@@ -106,7 +105,7 @@ impl App {
     #[inline(never)]
     pub fn from_arguments(raw_args: impl Iterator<Item = CStr<'static>>) -> Result<Self, Error> {
         let mut print_version = false;
-        let mut switches: TinyVec<[u8; 24]> = TinyVec::new();
+        let mut switches = Vec::with_capacity(64);
         let mut args_valid = true;
 
         let mut hit_only_arg_marker = false;
@@ -131,7 +130,7 @@ impl App {
             print_group: true,
             color: Color::Auto,
             out: OutputBuffer::to_fd(1),
-            args: TinyVec::new(),
+            args: Vec::with_capacity(4),
             uid_names: Vec::new(),
             gid_names: Vec::new(),
             etc_passwd: &[],

@@ -195,7 +195,7 @@ fn list_dir_contents(
         if path.len() > 1 && path.last() == Some(&b'/') {
             path.pop();
         }
-        app.out.write(&path).write(b":\n");
+        app.out.write(path).write(b":\n");
     }
 
     if app.needs_details {
