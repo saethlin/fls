@@ -182,7 +182,7 @@ impl<'a> DirEntryExt for (DirEntry<'a>, Option<crate::Status>) {
 include!(concat!(env!("OUT_DIR"), "/codegen.rs"));
 
 pub fn extension_style(name: &[u8]) -> Style {
-    if name.get(0) == Some(&b'#') || name.last() == Some(&b'~') || name.last() == Some(&b'#') {
+    if name.first() == Some(&b'#') || name.last() == Some(&b'~') || name.last() == Some(&b'#') {
         return Style::Fixed(244);
     }
     let extension = match name.rsplit(|b| *b == b'.').next() {
