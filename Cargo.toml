@@ -10,7 +10,7 @@ edition = "2018"
 include = ["src/**/*.rs", "build.rs", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-veneer = "0.1"
+veneer = "0.1.1"
 libc = "0.2"
 unicode-width = "0.1"
 compiler_builtins = { version = "0.1", default-features = false, features = ["mem"] }

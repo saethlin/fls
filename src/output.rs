@@ -14,7 +14,7 @@ use unicode_width::UnicodeWidthStr;
 macro_rules! print {
     ($app:expr, $($item:expr),+) => {
         {
-        use crate::output::Writable;
+        use $crate::output::Writable;
         $($item.write(&mut $app.out);)*
     }};
 }
@@ -442,6 +442,7 @@ impl Writable for &[u8] {
 
 impl<const N: usize> Writable for &[u8; N] {
     fn write(&self, out: &mut OutputBuffer) {
+        #[allow(clippy::explicit_auto_deref)] // Invalid suggestion
         out.write(*self);
     }
 }
