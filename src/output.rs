@@ -65,7 +65,7 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
         largest_links = largest_links.max(status.links as usize);
         inode_len = inode_len.max(status.inode as usize);
         blocks_len = blocks_len.max(status.blocks as usize);
-        blocks += status.blocks * status.block_size as i64 / 8192;
+        blocks += status.blocks * status.block_size / 8192;
     }
 
     print!(app, "total ", blocks, "\n");
@@ -114,7 +114,7 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
         app.out
             .push(b' ')
             .style(White)
-            .align_right(status.links as u64, largest_links);
+            .align_right(status.links, largest_links);
 
         if app.print_owner {
             let name = app.getpwuid(status.uid);
@@ -217,7 +217,7 @@ pub fn write_grid(
 
     let inode_len = if app.print_inode {
         let inode = entries.iter().map(|e| e.inode()).max().unwrap_or(0);
-        Buffer::new().format(inode as u64).len()
+        Buffer::new().format(inode).len()
     } else {
         0
     };
