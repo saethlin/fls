@@ -53,11 +53,11 @@ fn main() {
     all_styles.sort_by(|a, b| a.0.cmp(b.0));
 
     let path = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("codegen.rs");
-    let mut file = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
+    let mut file = std::io::BufWriter::new(std::fs::File::create(path).unwrap());
     writeln!(file, "static EXTENSION_STYLES: &[(&[u8], Style)] = &[").unwrap();
 
     for (ext, sty) in &all_styles {
-        writeln!(file, "(b\"{}\", {}),", ext, sty).unwrap();
+        writeln!(file, "(b\"{ext}\", {sty}),").unwrap();
     }
     writeln!(file, "];").unwrap();
 }
