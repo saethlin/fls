@@ -4,21 +4,14 @@ version = 3
 
 [[package]]
 name = "bitflags"
-version = "1.3.2"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
-
-[[package]]
-name = "compiler_builtins"
-version = "0.1.75"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6e3183e88f659a862835db8f4b67dbeed3d93e44dd4927eef78edb1c149d784"
+checksum = "b4682ae6287fcf752ecaabbfcc7b6f9b72aa33933dc23a554d853aea8eea8635"
 
 [[package]]
 name = "fls"
 version = "0.1.0"
 dependencies = [
- "compiler_builtins",
  "libc",
  "unicode-width",
  "veneer",
@@ -44,9 +37,9 @@ checksum = "3ed742d4ea2bd1176e236172c8429aaf54486e7ac098db29ffe6529e0ce50973"
 
 [[package]]
 name = "veneer"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b494a090c28114a3f2bf8322720b522eecdeca302ae752d4e2b0fe77eb0b5c85"
+checksum = "6774b6627b08e6d8ddb2258c97024f6d6def2bd20d2c466beb487a8933c6c9dd"
 dependencies = [
  "bitflags",
  "libc",

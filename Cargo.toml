@@ -10,14 +10,15 @@ edition = "2018"
 include = ["src/**/*.rs", "build.rs", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-veneer = "0.1.1"
+veneer = { version = "0.2", features = ["rt"] }
 libc = "0.2"
 unicode-width = "0.1"
-compiler_builtins = { version = "0.1", default-features = false, features = ["mem"] }
 
 [profile.dev]
 panic = "abort"
 
 [profile.release]
 panic = "abort"
+codegen-units = 1
+lto = "fat"
 debug = 1

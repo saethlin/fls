@@ -22,22 +22,16 @@ macro_rules! print {
 fn print_rwx(app: &mut App, mode: u32, read_mask: u32, write_mask: u32, execute_mask: u32) {
     use Style::*;
 
-    if mode & read_mask > 0 {
-        app.out.style(YellowBold).push(b'r');
-    } else {
-        app.out.style(Gray).push(b'-');
-    }
-
-    if mode & write_mask > 0 {
-        app.out.style(RedBold).push(b'w');
-    } else {
-        app.out.style(Gray).push(b'-');
-    }
-
-    if mode & execute_mask > 0 {
-        app.out.style(GreenBold).push(b'x');
-    } else {
-        app.out.style(Gray).push(b'-');
+    for (mask, color, chr) in [
+        (read_mask, YellowBold, b'r'),
+        (write_mask, RedBold, b'w'),
+        (execute_mask, GreenBold, b'x'),
+    ] {
+        if mode & mask > 0 {
+            app.out.style(color).push(chr);
+        } else {
+            app.out.style(Gray).push(b'-');
+        }
     }
 }
 
@@ -638,12 +632,12 @@ fn write_all(bytes: &[u8], fd: i32) {
     }
 }
 
+static MONTH_NAMES: &[&[u8]] = &[
+    b"Jan", b"Feb", b"Mar", b"Apr", b"May", b"Jun", b"Jul", b"Aug", b"Sep", b"Oct", b"Nov", b"Dec",
+];
+
 fn month_abbr(month: libc::c_int) -> &'static [u8] {
-    let month_names = [
-        b"Jan", b"Feb", b"Mar", b"Apr", b"May", b"Jun", b"Jul", b"Aug", b"Sep", b"Oct", b"Nov",
-        b"Dec",
-    ];
-    month_names.get(month as usize).copied().unwrap_or(b"???")
+    MONTH_NAMES.get(month as usize).copied().unwrap_or(b"???")
 }
 
 // This code was translated almost directly from the implementation in GNU ls
