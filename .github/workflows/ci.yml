@@ -1,32 +1,58 @@
----
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
     branches:
-      - master
-  schedule:
-    - cron: '00 3 * * *'
+      - main
 
 name: CI
 
 jobs:
-  ci:
+  suite_matrix:
+    strategy:
+      matrix:
+        suite: [style, test]
     runs-on: ubuntu-latest
-    name: Build and Test
+    name: ${{ matrix.suite }}
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          override: true
-          toolchain: nightly
-          components: clippy, rustfmt
-
-      - name: Build
-        run: cargo build
-
-      - name: Style
+      - uses: actions/checkout@v3
+      - name: Rustup
         run: |
-          cargo fmt --check
-          cargo clippy -- -D clippy::all
+          rustup self update
+          rustup update
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/
+            target/
+          key: ${{ runner.os }}-${{ matrix.suite }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-$(rustc --version)
+      - name: Run
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          CARGO_INCREMENTAL: 0
+          RUSTFLAGS: -Cdebuginfo=0
+        run: |
+          echo "::group::Install dependencies"
+          set -o pipefail
+          cargo install htmlpty --locked --git https://github.com/saethlin/miri-tools
+          set +e
+          echo "::endgroup"
+          htmlpty bash ci.sh ${{ matrix.suite }} 2> output.html
+          FAILED=$?
+          aws s3 cp output.html s3://miri-bot-dev/${GITHUB_REPOSITORY}/${GITHUB_RUN_ID}/${{ matrix.suite }}.html
+          LOG_URL=https://miri-bot-dev.s3.amazonaws.com/${GITHUB_REPOSITORY}/${GITHUB_RUN_ID}/${{ matrix.suite }}.html
+          if [ $FAILED -ne 0 ]
+          then
+            curl -L \
+                -X POST \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer ${{ secrets.github_token }}" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                ${{ github.event.pull_request.comments_url }} \
+                -d "{\"body\":\"$LOG_URL\"}"
+          fi
+          exit $FAILED
