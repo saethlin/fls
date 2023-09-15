@@ -165,27 +165,24 @@ fn list_dir_contents(
         }
     };
     let hint = contents.iter().size_hint();
-    let mut entries = Vec::new();
-    entries.reserve(hint.1.unwrap_or(hint.0));
+    let mut entries = Vec::with_capacity(hint.1.unwrap_or(hint.0));
 
-    match app.show_all {
-        ShowAll::No => {
-            for e in contents.iter().filter(|e| e.name().get(0) != Some(b'.')) {
-                entries.push((e.into(), None));
-            }
-        }
-        ShowAll::Almost => {
-            for e in contents.iter() {
-                if e.name().as_bytes() != b".." && e.name().as_bytes() != b"." {
-                    entries.push((e.into(), None));
+    for e in contents.iter() {
+        match app.show_all {
+            ShowAll::No => {
+                if e.name().get(0) == Some(b'.') {
+                    continue;
                 }
             }
-        }
-        ShowAll::Yes => {
-            for e in contents.iter() {
-                entries.push((e.into(), None));
+            ShowAll::Almost => {
+                let name = e.name().as_bytes();
+                if name == b"." || name == b".." {
+                    continue;
+                }
             }
+            ShowAll::Yes => {}
         }
+        entries.push((e.into(), None));
     }
 
     if app.args.len() > 1 || app.recurse {
