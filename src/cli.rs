@@ -312,7 +312,8 @@ impl App {
                 &mut app.uid_names,
             )?;
             Self::init_id_map(&b"/etc/group\0"[..], &mut app.etc_group, &mut app.gid_names)?;
-            app.tzinfo = Some(crate::time::Tzinfo::new());
+            let zi = crate::utils::fs_read(CStr::from_bytes(&b"/etc/localtime\0"[..])).unwrap();
+            app.tzinfo = Some(crate::time::Tzinfo::new(&zi));
         }
 
         app.needs_details = app.display_mode == DisplayMode::Long
