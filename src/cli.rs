@@ -283,9 +283,7 @@ impl App {
 
         if print_version {
             app.out
-                .write(b"fls ")
-                .write(env!("CARGO_PKG_VERSION").as_bytes())
-                .write(b"\n")
+                .write(concat!("fls ", env!("CARGO_PKG_VERSION"), "\n").as_bytes())
                 .flush();
             exit(0);
         }
