@@ -551,22 +551,25 @@ impl OutputBuffer {
     }
 
     #[inline(never)]
-    pub fn flush(&mut self) {
+    pub fn flush(&mut self) -> &mut [u8; 4096] {
         write_all(&self.buf[..self.buf_used], self.fd);
         self.buf_used = 0;
+        &mut self.buf
     }
 
     pub fn write(&mut self, bytes: &[u8]) -> &mut Self {
-        if bytes.len() + self.buf_used >= self.buf.len() {
-            self.flush();
-        }
-        if bytes.len() > self.buf.len() {
-            write_all(bytes, self.fd);
-        } else {
-            let end = self.buf_used + bytes.len();
-            self.buf[self.buf_used..end].copy_from_slice(bytes);
+        if let Some(dest) = self.buf.get_mut(self.buf_used..self.buf_used + bytes.len()) {
+            dest.copy_from_slice(bytes);
             self.buf_used += bytes.len();
+            return self;
         }
+        if let Some(dest) = self.flush().get_mut(..bytes.len()) {
+            dest.copy_from_slice(bytes);
+            self.buf_used += bytes.len();
+            return self;
+        }
+        write_all(bytes, self.fd);
+
         self
     }
 
