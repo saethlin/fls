@@ -229,7 +229,7 @@ pub fn write_grid(
     };
 
     // We want to determine the maximum number of columns we can use to lay out these entries.
-    // So we simulate arrangingi the entries in every possible layout at the same time. Notionally,
+    // So we simulate arranging the entries in every possible layout at the same time. Notionally,
     // we keep a Vec of column widths (widest name in each column) for every number of columns, and
     // when we add an entry to a column which makes the sum of all columns for that layout too
     // large, we discard it.
