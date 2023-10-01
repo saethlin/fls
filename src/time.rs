@@ -1,10 +1,5 @@
-#![allow(unused)] // File is very WIP
-use crate::CStr;
 use alloc::vec::Vec;
-use core::{
-    convert::TryInto,
-    sync::atomic::{AtomicI64, Ordering::SeqCst},
-};
+use core::convert::TryInto;
 
 const LEAPOCH: i64 = 946684800i64 + 86400 * (31 + 29);
 
@@ -14,110 +9,113 @@ const DAYS_PER_4Y: i64 = 365 * 4 + 1;
 
 const DAYS_IN_MONTH: [u8; 12] = [31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 31, 29];
 
-// Hacked up components from tzfile: https://github.com/nicolasbauw/rs-tzfile
+trait SliceExt: Sized {
+    fn read_i32_be(&mut self) -> Option<i32>;
+    fn read_u32_be(&mut self) -> Option<u32>;
+    fn read(&mut self, n: usize) -> Option<Self>;
+}
 
-fn parse_header(buffer: &[u8]) -> Header {
-    let magic = read_u32(&buffer[0x00..=0x03]);
-    if magic != MAGIC {
-        panic!("Not a TZ file");
+impl SliceExt for &[u8] {
+    fn read(&mut self, n: usize) -> Option<Self> {
+        if self.len() < n {
+            None
+        } else {
+            let (head, tail) = self.split_at(n);
+            *self = tail;
+            Some(head)
+        }
     }
-    if buffer[4] != 50 {
-        panic!("Unsupported TZ format");
+
+    fn read_u32_be(&mut self) -> Option<u32> {
+        if self.len() < 4 {
+            return None;
+        }
+        let (head, tail) = self.split_at(4);
+        *self = tail;
+        Some(u32::from_be_bytes(head.try_into().unwrap()))
     }
-    let tzh_ttisgmtcnt = read_i32(&buffer[0x14..=0x17]) as usize;
-    let tzh_ttisstdcnt = read_i32(&buffer[0x18..=0x1B]) as usize;
-    let tzh_leapcnt = read_i32(&buffer[0x1C..=0x1F]) as usize;
-    let tzh_timecnt = read_i32(&buffer[0x20..=0x23]) as usize;
-    let tzh_typecnt = read_i32(&buffer[0x24..=0x27]) as usize;
-    let tzh_charcnt = read_i32(&buffer[0x28..=0x2b]) as usize;
+
+    fn read_i32_be(&mut self) -> Option<i32> {
+        if self.len() < 4 {
+            return None;
+        }
+        let (head, tail) = self.split_at(4);
+        *self = tail;
+        Some(i32::from_be_bytes(head.try_into().unwrap()))
+    }
+}
+
+fn parse_header(buffer: &[u8]) -> Option<Header> {
+    // We only support version 2, so validate the magic bytes and version all at once.
+    if buffer.get(..5)? != b"TZif2" {
+        return None;
+    }
+    let mut header = buffer.get(0x14..=0x2b)?;
+    let tzh_ttisgmtcnt = header.read_u32_be()?;
+    let tzh_ttisstdcnt = header.read_u32_be()?;
+    let tzh_leapcnt = header.read_u32_be()?;
+    let tzh_timecnt = header.read_u32_be()?;
+    let tzh_typecnt = header.read_u32_be()?;
+    let tzh_charcnt = header.read_u32_be()?;
     // V2 format data start
-    let s: usize = tzh_timecnt * 5
+    let s = (tzh_timecnt * 5
         + tzh_typecnt * 6
         + tzh_leapcnt * 8
         + tzh_charcnt
         + tzh_ttisstdcnt
         + tzh_ttisgmtcnt
-        + 44;
-    Header {
-        tzh_ttisgmtcnt: read_i32(&buffer[s + 0x14..=s + 0x17]) as usize,
-        tzh_ttisstdcnt: read_i32(&buffer[s + 0x18..=s + 0x1B]) as usize,
-        tzh_leapcnt: read_i32(&buffer[s + 0x1C..=s + 0x1F]) as usize,
-        tzh_timecnt: read_i32(&buffer[s + 0x20..=s + 0x23]) as usize,
-        tzh_typecnt: read_i32(&buffer[s + 0x24..=s + 0x27]) as usize,
-        tzh_charcnt: read_i32(&buffer[s + 0x28..=s + 0x2b]) as usize,
+        + 44) as usize;
+    let mut header = buffer.get(s + 0x14..=s + 0x2b)?;
+    let _ignored_fields = header.read(12)?;
+    Some(Header {
+        tzh_timecnt: header.read_u32_be()?,
+        tzh_typecnt: header.read_u32_be()?,
         v2_header_start: s,
-    }
+    })
 }
 
-fn parse_data(buffer: &[u8], header: Header) -> Tzinfo {
-    // Calculates fields lengths and indexes (Version 2 format)
-    let tzh_timecnt_len: usize = header.tzh_timecnt * 9;
-    let tzh_typecnt_len: usize = header.tzh_typecnt * 6;
-    let tzh_leapcnt_len: usize = header.tzh_leapcnt * 12;
-    let tzh_charcnt_len: usize = header.tzh_charcnt;
-    let tzh_timecnt_end: usize = HEADER_LEN + header.v2_header_start + tzh_timecnt_len;
-    let tzh_typecnt_end: usize = tzh_timecnt_end + tzh_typecnt_len;
-    let tzh_leapcnt_end: usize = tzh_typecnt_end + tzh_leapcnt_len;
-    let tzh_charcnt_end: usize = tzh_leapcnt_end + tzh_charcnt_len;
+fn parse_data(buffer: &[u8], header: Header) -> Option<Tzinfo> {
+    let mut buffer = buffer.get(HEADER_LEN + header.v2_header_start..)?;
 
     // Extracting data fields
-    let tzh_timecnt_data: Vec<i64> = buffer[HEADER_LEN + header.v2_header_start
-        ..HEADER_LEN + header.v2_header_start + header.tzh_timecnt * 8]
+    let tzh_timecnt_data: Vec<i64> = buffer
+        .read(header.tzh_timecnt as usize * 8)?
         .chunks_exact(8)
         .map(read_i64)
         .collect();
 
-    let tzh_timecnt_indices: &[u8] =
-        &buffer[HEADER_LEN + header.v2_header_start + header.tzh_timecnt * 8..tzh_timecnt_end];
+    let tzh_timecnt_indices = buffer.read(header.tzh_timecnt as usize)?.to_vec();
 
-    let abbrs = &buffer[tzh_leapcnt_end..tzh_charcnt_end];
-
-    let tzh_typecnt: Vec<Ttinfo> = buffer[tzh_timecnt_end..tzh_typecnt_end]
+    let gmt_offsets: Vec<_> = buffer
+        .read(header.tzh_typecnt as usize * 6)?
         .chunks_exact(6)
-        .map(|tti| {
-            let offset = tti[5];
-            let index = abbrs
-                .iter()
-                .take(offset as usize)
-                .filter(|x| **x == b'\0')
-                .count();
-            Ttinfo {
-                tt_gmtoff: read_i32(&tti[0..4]) as isize,
-                tt_isdst: tti[4],
-                tt_abbrind: index as u8,
-            }
-        })
+        .map(|tti| read_i32(&tti[..4]))
         .collect();
 
-    Tzinfo {
+    Some(Tzinfo {
         tzh_timecnt_data,
-        tzh_timecnt_indices: tzh_timecnt_indices.to_vec(),
-        tzh_typecnt,
-    }
+        tzh_timecnt_indices,
+        gmt_offsets,
+    })
 }
 
 fn read_i32(bytes: &[u8]) -> i32 {
-    i32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
-}
-
-fn read_u32(bytes: &[u8]) -> u32 {
-    u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+    i32::from_be_bytes(bytes[..4].try_into().unwrap())
 }
 
 fn read_i64(bytes: &[u8]) -> i64 {
     i64::from_be_bytes(bytes[..8].try_into().unwrap())
 }
 
-const MAGIC: u32 = 0x545A6966;
 const HEADER_LEN: usize = 0x2C;
 
 struct Header {
-    tzh_ttisgmtcnt: usize,
-    tzh_ttisstdcnt: usize,
-    tzh_leapcnt: usize,
-    tzh_timecnt: usize,
-    tzh_typecnt: usize,
-    tzh_charcnt: usize,
+    //tzh_ttisgmtcnt: u32,
+    //tzh_ttisstdcnt: u32,
+    //tzh_leapcnt: u32,
+    tzh_timecnt: u32,
+    tzh_typecnt: u32,
+    //tzh_charcnt: u32,
     v2_header_start: usize,
 }
 
@@ -126,8 +124,7 @@ pub struct Tzinfo {
     tzh_timecnt_data: Vec<i64>,
     /// indices for the next field
     tzh_timecnt_indices: Vec<u8>,
-    /// a struct containing UTC offset, daylight saving time, abbreviation index
-    tzh_typecnt: Vec<Ttinfo>,
+    gmt_offsets: Vec<i32>,
 }
 
 pub struct LocalTime {
@@ -139,10 +136,10 @@ pub struct LocalTime {
 }
 
 impl Tzinfo {
-    pub fn new() -> Self {
-        let zi = crate::utils::fs_read(CStr::from_bytes(&b"/etc/localtime\0"[..])).unwrap();
-        let header = parse_header(&zi);
-        parse_data(&zi, header)
+    #[inline(never)]
+    pub fn new(zi: &[u8]) -> Self {
+        let header = parse_header(zi).unwrap();
+        parse_data(zi, header).unwrap()
     }
 
     fn gmt_offset(&self, time: i64) -> i64 {
@@ -151,10 +148,10 @@ impl Tzinfo {
             Err(i) => i + 1,
         };
         let idx = self.tzh_timecnt_indices[best_idx] as usize;
-        self.tzh_typecnt[idx].tt_gmtoff as i64
+        self.gmt_offsets[idx] as i64
     }
 
-    // Ported from musl's localtime_r impl
+    // Ported from musl's localtime_r impl, src/time/__secs_to_tm.c
     #[inline(never)]
     pub fn convert_to_localtime(&self, t: i64) -> LocalTime {
         let t = t + self.gmt_offset(t);
@@ -192,8 +189,6 @@ impl Tzinfo {
         }
         remdays -= remyears * 365;
 
-        let leap = remyears != 0 && ((q_cycles == 0) || c_cycles != 0);
-
         let mut years = remyears + 4 * q_cycles + 100 * c_cycles + 400 * qc_cycles;
 
         let mut months: i64 = 0;
@@ -215,10 +210,4 @@ impl Tzinfo {
             minute: (remsecs / 60 % 60).try_into().unwrap(),
         }
     }
-}
-
-struct Ttinfo {
-    tt_gmtoff: isize,
-    tt_isdst: u8,
-    tt_abbrind: u8,
 }
