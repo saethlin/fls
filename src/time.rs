@@ -147,8 +147,12 @@ impl Tzinfo {
             Ok(i) => i,
             Err(i) => i + 1,
         };
-        let idx = self.tzh_timecnt_indices[best_idx] as usize;
-        self.gmt_offsets[idx] as i64
+        let idx = *self
+            .tzh_timecnt_indices
+            .get(best_idx)
+            .or_else(|| self.tzh_timecnt_indices.last())
+            .unwrap_or(&0) as usize;
+        *self.gmt_offsets.get(idx).unwrap_or(&0) as i64
     }
 
     // Ported from musl's localtime_r impl, src/time/__secs_to_tm.c
