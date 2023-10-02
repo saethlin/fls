@@ -37,9 +37,9 @@ checksum = "e51733f11c9c4f72aa0c160008246859e340b00807569a0da0e7a1079b27ba85"
 
 [[package]]
 name = "veneer"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6774b6627b08e6d8ddb2258c97024f6d6def2bd20d2c466beb487a8933c6c9dd"
+checksum = "3b8a2a400e629031328fe522df4a9ec3d6d3cadb27bf90108ff37247896d38d1"
 dependencies = [
  "bitflags",
  "libc",
