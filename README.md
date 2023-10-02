@@ -1,23 +1,21 @@
 ## fls
 A nearly-POSIX-compliant and libc-less `ls` that's smaller, faster, and prettier than GNU's<sup>1</sup>.
 
-[exa](https://github.com/ogham/exa) and [lsd](https://github.com/Peltoche/lsd) are both great `ls`-like Rust programs, but they're slower than the system `ls` and about 10x the code size. Plus you can't actually replace your `ls` with one of them, because some software relies on parsing the output of `ls`. But even as a user experience improvement, I think other projects tell the wrong story; modern software does not need to be larger or slower.
+[eza](https://github.com/eza-community/eza) and [lsd](https://github.com/lsd-rs/lsd) are both great `ls`-like Rust programs, but they're slower than the system `ls` and about 10x the code size. Plus you can't actually replace your `ls` with one of them, because some software relies on parsing the output of `ls`. But even as a user experience improvement, I think other projects tell the wrong story; modern software does not need to be larger or slower.
 
 <sup>1</sup>I don't mean to rag on GNU's `ls`, but as far as I can tell it's the closest thing along the metrics I value.
 
-## Crude benchmarks
-|          | --color=never -R / > /dev/null | --color=always -R /  | --color=auto ~ | --color=auto -l ~ |
-| ---------| ------------------------------ | -------------------- | -------------- | ----------------- |
-| `fls`    | 0.66 s                         | 2.32 s               | 0.16 ms        | 0.30 ms           |
-| GNU `ls` | 1.22 s                         | 4.37 s               | 0.38 ms        | 2.30 ms           |
-| `exa`    | 3.61 s                         | 63.7 s <sup>3</sup>  | 0.78 ms        | 3.30 ms <sup>4</sup> |
-| `lsd`    | ???<sup>2</sup>                | ???<sup>2</sup>      | 36.5 ms        | 36.8 ms           |
+## Wall time benchmarks, run on an Ubuntu 22.04 AWS instance with `perf stat -r100`
+|          | --color=never -R / > /dev/null | --color=always -R / | --color=auto ~ | --color=auto -l ~ |
+| ---------| ------------------------------ | ------------------- | -------------- | ----------------- |
+| `fls`    | 0.31 s                         | 1.9 s               | 0.68 ms        | 0.8 ms            |
+| GNU `ls` | 0.40 s                         | 3.0 s               | 1.6 ms         | 4.3 ms            |
+| `eza`    | 3.3 s                          | 6.7 s               | 1.8 ms         | 5.3 ms            |
+| `lsd`    | 7.5 s                          | 10 s                | 4.4 ms         | 5.1 ms            |
 
 These do not cover all reasonable combinations of options, but if you can find a combination of flags for which `fls` is slower than any alternatives, please open an issue.
 
-<sup>2</sup>`lsd` doesn't detect symlink cycles and thus runs indefinitely on `-R /`.<br/>
-<sup>3</sup>I have some large directories of fuzzing corpora; from running `perf top` as I was collecting this data, I see `exa` spends most of its time in `term_grid::Grid::column_widths`. I suspect its grid layout algorithm is quadratic.<br/>
-<sup>4</sup>In all cases I report wall time; this is the only case where CPU time is significantly different. `exa`'s CPU time is ~2.2x this value.<br/>
+Note that `fls` will crush GNU `ls` on tiny workloads for the same reason that an `x86_64-unknown-linux-musl` hello world program is faster than an `x86_64-unknown-linux-gnu` hello world: glibc is dynamically linked and unconditionally runs a lot of global initialization code before `main`. Perhaps those are good things to do for programs in general. You can decide for yourself.
 
 ## "libc-less"
 
