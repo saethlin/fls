@@ -10,7 +10,6 @@ const DAYS_PER_4Y: i64 = 365 * 4 + 1;
 const DAYS_IN_MONTH: [u8; 12] = [31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 31, 29];
 
 trait SliceExt: Sized {
-    fn read_i32_be(&mut self) -> Option<i32>;
     fn read_u32_be(&mut self) -> Option<u32>;
     fn read(&mut self, n: usize) -> Option<Self>;
 }
@@ -33,15 +32,6 @@ impl SliceExt for &[u8] {
         let (head, tail) = self.split_at(4);
         *self = tail;
         Some(u32::from_be_bytes(head.try_into().unwrap()))
-    }
-
-    fn read_i32_be(&mut self) -> Option<i32> {
-        if self.len() < 4 {
-            return None;
-        }
-        let (head, tail) = self.split_at(4);
-        *self = tail;
-        Some(i32::from_be_bytes(head.try_into().unwrap()))
     }
 }
 

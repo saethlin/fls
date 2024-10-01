@@ -30,8 +30,6 @@ pub trait DirEntryExt {
     fn inode(&self) -> u64;
     fn blocks(&self) -> u64;
     fn time(&self) -> libc::time_t;
-    fn d_type(&self) -> DType;
-    fn size(&self) -> libc::off_t;
 }
 
 #[derive(Clone, Copy)]
@@ -91,18 +89,6 @@ impl DirEntryExt for (DirEntry<'_>, Option<crate::Status>) {
         } else {
             0
         }
-    }
-
-    fn size(&self) -> libc::off_t {
-        if let Some(st) = &self.1 {
-            st.size
-        } else {
-            0
-        }
-    }
-
-    fn d_type(&self) -> DType {
-        self.0.d_type
     }
 
     fn style(&self, dir: &veneer::fs::Directory, app: &App) -> (Style, Option<u8>) {
