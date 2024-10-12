@@ -55,7 +55,9 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
             longest_group_len = longest_group_len.max(app.getgrgid(status.gid).len());
         }
 
-        largest_size = largest_size.max(status.size as usize);
+        if !app.humanize {
+            largest_size = largest_size.max(status.size as usize);
+        }
         largest_links = largest_links.max(status.links as usize);
         inode_len = inode_len.max(status.inode as usize);
         blocks_len = blocks_len.max(status.blocks as usize);
@@ -65,7 +67,12 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
     print!(app, "total ", blocks, "\n");
 
     let mut buf = Buffer::new();
-    largest_size = buf.format(largest_size as u64).len();
+    // Humanized sizes are max len 4: e.g. "3.1M" or "256K"
+    largest_size = if app.humanize {
+        4
+    } else {
+        buf.format(largest_size as u64).len()
+    };
     largest_links = buf.format(largest_links as u64).len();
     inode_len = buf.format(inode_len as u64).len();
     blocks_len = buf.format(blocks_len as u64).len();
@@ -126,10 +133,16 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
                 .align_left(group, longest_group_len);
         }
 
+        let size_u = status.size as u64;
+        let size = if app.humanize {
+            buf.humanize(size_u)
+        } else {
+            buf.format(size_u)
+        };
         app.out
             .push(b' ')
             .style(GreenBold)
-            .align_right(status.size as u64, largest_size);
+            .align_right_str(size, largest_size);
 
         let localtime = app.convert_to_localtime(status.time);
 
@@ -608,6 +621,16 @@ impl OutputBuffer {
             }
         }
         self.write(formatted);
+        self
+    }
+
+    pub fn align_right_str(&mut self, value: &[u8], width: usize) -> &mut Self {
+        if value.len() < width {
+            for _ in 0..width - value.len() {
+                self.push(b' ');
+            }
+        }
+        self.write(value);
         self
     }
 }

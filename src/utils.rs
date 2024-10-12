@@ -3,6 +3,7 @@ use crate::{
     CStr,
 };
 use alloc::vec::Vec;
+use core::cmp::Ordering;
 
 pub fn atoi(digits: &[u8]) -> u64 {
     let mut num = 0;
@@ -35,13 +36,22 @@ impl Buffer {
         }
     }
 
-    pub fn format(&mut self, mut n: u64) -> &[u8] {
+    pub fn format(&mut self, n: u64) -> &[u8] {
+        self.format_with_letter(n, 0)
+    }
+
+    pub fn format_with_letter(&mut self, mut n: u64, letter: u8) -> &[u8] {
         let buf = &mut self.bytes;
         let mut curr = buf.len();
 
         if n == 0 {
             buf[curr - 1] = b'0';
             return &buf[curr - 1..];
+        }
+
+        if letter != 0 {
+            buf[curr - 1] = letter;
+            curr -= 1;
         }
 
         while n >= 10 {
@@ -57,6 +67,96 @@ impl Buffer {
         }
 
         &buf[curr..]
+    }
+
+    /// precision: Number of digits after the dot
+    pub fn format_f64_with_letter(&mut self, f: f64, mut precision: u64, letter: u8) -> &[u8] {
+        let buf = &mut self.bytes;
+        let mut curr = buf.len();
+
+        if letter != 0 {
+            buf[curr - 1] = letter;
+            curr -= 1;
+        }
+
+        let mut n = (f * (precision as f64 * 10.0)) as u64;
+        if n == 0 {
+            buf[curr - 1] = b'0';
+            return &buf[curr - 1..];
+        }
+
+        // Do the digits one by one, there won't be many because we humanized
+        while n > 0 {
+            let d1 = (n % 10) as u8;
+            n /= 10;
+            curr -= 1;
+            buf[curr] = b'0' + d1;
+            match precision.cmp(&1) {
+                Ordering::Greater => precision -= 1,
+                Ordering::Equal => {
+                    curr -= 1;
+                    buf[curr] = b'.';
+                    precision = 0;
+                }
+                _ => {}
+            }
+        }
+
+        &buf[curr..]
+    }
+
+    /// Takes a file size in bytes and returns it as a human friendly value.
+    ///
+    /// The size returned is the smallest rounded value in which this file will
+    /// fit - i.e. it is a ceiling. A file of 2882, when divided by 1024 is 2.8144.
+    /// It rounds to 2.8K but it won't fit in exactly 2.8K, so we display it as 2.9K.
+    /// This matches what GNU ls does.
+    ///
+    /// Examples:
+    /// - 2.1K
+    /// - 142K
+    /// - 16M
+    /// - 4.8G
+    pub fn humanize(&mut self, u: u64) -> &[u8] {
+        const KILO: f64 = 1024.0;
+        const MEGA: f64 = KILO * 1024.0;
+        const GIGA: f64 = MEGA * 1024.0;
+        const TERA: f64 = GIGA * 1024.0;
+
+        let size = u as f64;
+        let (divider, letter) = if size < KILO {
+            (1.0, 0)
+        } else if size < MEGA {
+            (KILO, b'K')
+        } else if size < GIGA {
+            (MEGA, b'M')
+        } else if size < TERA {
+            (GIGA, b'G')
+        } else {
+            (TERA, b'T')
+        };
+
+        if divider == 1.0 {
+            self.format(u)
+        } else {
+            let scaled = size / divider;
+            // The stabilized f64::ceil is in 'std' not 'core', so use the intrinsic
+            let int_rnd = unsafe { core::intrinsics::ceilf64(scaled) };
+            if scaled >= 10.0 {
+                // No decimal digit
+                self.format_with_letter(int_rnd as u64, letter)
+            } else {
+                // Round to one decimal
+                let h = unsafe { core::intrinsics::ceilf64(scaled * 10.0) } / 10.0;
+                if h == int_rnd {
+                    // decimal is 0
+                    self.format_with_letter(int_rnd as u64, letter)
+                } else {
+                    // One decimal digit
+                    self.format_f64_with_letter(h, 1, letter)
+                }
+            }
+        }
     }
 }
 
