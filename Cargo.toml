@@ -21,4 +21,4 @@ panic = "abort"
 panic = "abort"
 codegen-units = 1
 lto = "fat"
-debug = 1
+debug = "line-tables-only"
