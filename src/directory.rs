@@ -68,7 +68,7 @@ impl EntryType {
     }
 }
 
-impl<'a> DirEntryExt for (DirEntry<'a>, Option<crate::Status>) {
+impl DirEntryExt for (DirEntry<'_>, Option<crate::Status>) {
     fn name(&self) -> CStr {
         self.0.name
     }

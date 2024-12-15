@@ -247,7 +247,7 @@ pub fn write_grid(
     for i in 2..=max_possible_columns {
         layouts.extend(core::iter::repeat(0).take(i));
         // current position, increments left until we move to the next column
-        let rows = (entries.len() + i - 1) / i;
+        let rows = entries.len().div_ceil(i);
         cursors.push(LayoutCursor {
             column: 0,
             left_in_this_column: rows,
@@ -447,7 +447,7 @@ impl Writable for &str {
     }
 }
 
-impl<'a> Writable for CStr<'a> {
+impl Writable for CStr<'_> {
     fn write(&self, out: &mut OutputBuffer) {
         out.write(self.as_bytes());
     }
