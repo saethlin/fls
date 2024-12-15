@@ -32,6 +32,7 @@ pub struct App {
     pub print_owner: bool,
     pub print_group: bool,
     pub color: Color,
+    pub humanize: bool,
 
     pub args: Vec<CStr<'static>>,
 
@@ -137,6 +138,7 @@ impl App {
             etc_group: &[],
             needs_details: false,
             tzinfo: None,
+            humanize: false,
         };
 
         for arg in raw_args.skip(1) {
@@ -220,6 +222,9 @@ impl App {
                 b'g' => {
                     app.display_mode = DisplayMode::Long;
                     app.print_owner = false;
+                }
+                b'h' => {
+                    app.humanize = true;
                 }
                 b'i' => {
                     app.print_inode = true;
