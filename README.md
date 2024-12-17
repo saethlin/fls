@@ -1,9 +1,11 @@
 ## fls
-A nearly-POSIX-compliant and libc-less `ls` that's smaller, faster, and prettier than GNU's<sup>1</sup>.
+A nearly-POSIX-compliant<sup>1</sup> and libc-less `ls` that's smaller, faster, and prettier than GNU's<sup>2</sup>.
 
 [eza](https://github.com/eza-community/eza) and [lsd](https://github.com/lsd-rs/lsd) are both great `ls`-like Rust programs, but they're slower than the system `ls` and about 10x the code size. Plus you can't actually replace your `ls` with one of them, because some software relies on parsing the output of `ls`. But even as a user experience improvement, I think other projects tell the wrong story; modern software does not need to be larger or slower.
 
-<sup>1</sup>I don't mean to rag on GNU's `ls`, but as far as I can tell it's the closest thing along the metrics I value.
+<sup>1</sup> ie: Linux, _not_ MacOS.
+
+<sup>2</sup>I don't mean to rag on GNU's `ls`, but as far as I can tell it's the closest thing along the metrics I value.
 
 ## Wall time benchmarks, run on an Ubuntu 22.04 AWS instance with `perf stat -r100`
 |          | --color=never -R / > /dev/null | --color=always -R / | --color=auto ~ | --color=auto -l ~ |
