@@ -245,7 +245,7 @@ pub fn write_grid(
     let mut cursors = Vec::with_capacity(max_possible_columns - 1);
 
     for i in 2..=max_possible_columns {
-        layouts.extend(core::iter::repeat(0).take(i));
+        layouts.extend(core::iter::repeat_n(0, i));
         // current position, increments left until we move to the next column
         let rows = entries.len().div_ceil(i);
         cursors.push(LayoutCursor {
