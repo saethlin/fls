@@ -327,6 +327,11 @@ pub fn write_grid(
             app.out.style(*style);
             print!(app, e.name(), suffix.map(|s| (White, s)));
 
+            // don't pad out spaces from here until the newline
+            if c + 1 == widths.len() {
+                break;
+            }
+
             for _ in 0..(width - name_len) {
                 app.out.push(b' ');
             }
