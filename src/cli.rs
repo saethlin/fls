@@ -278,7 +278,7 @@ impl App {
         }
 
         if !args_valid {
-            return Err(Error(-1));
+            exit(1);
         }
 
         if print_version {
