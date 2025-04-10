@@ -245,7 +245,7 @@ pub fn write_grid(
     let mut cursors = Vec::with_capacity(max_possible_columns - 1);
 
     for i in 2..=max_possible_columns {
-        layouts.extend(core::iter::repeat(0).take(i));
+        layouts.extend(core::iter::repeat_n(0, i));
         // current position, increments left until we move to the next column
         let rows = entries.len().div_ceil(i);
         cursors.push(LayoutCursor {
@@ -326,6 +326,11 @@ pub fn write_grid(
 
             app.out.style(*style);
             print!(app, e.name(), suffix.map(|s| (White, s)));
+
+            // don't pad out spaces from here until the newline
+            if c + 1 == widths.len() {
+                break;
+            }
 
             for _ in 0..(width - name_len) {
                 app.out.push(b' ');
