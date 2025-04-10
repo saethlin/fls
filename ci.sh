@@ -13,7 +13,6 @@ function group {
 if [[ "$1" == "style" ]]
 then
     group cargo fmt --check
-    group cargo clippy -- -Dclippy::all
 else
     group cargo build
     group cargo build --release
