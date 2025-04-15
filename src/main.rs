@@ -11,12 +11,12 @@ mod time;
 mod utils;
 
 use crate::{
-    cli::{App, DisplayMode, ShowAll, SortField},
+    cli::{App, Args, DisplayMode, ShowAll, SortField},
     directory::{DirEntry, DirEntryExt},
     output::*,
     style::Style,
 };
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use veneer::{
     fs::{DType, Directory},
     syscalls, CStr, Error,
@@ -24,20 +24,20 @@ use veneer::{
 
 #[veneer::main]
 fn main() -> Result<(), Error> {
-    let mut app = App::from_arguments(veneer::env::args())?;
+    let mut app = App::DEFAULT;
+    app.init()?;
+
+    if matches!(app.args, Args::None) && !app.recurse {
+        let dir = Directory::open(CStr::from_bytes(b".\0"))?;
+        list_dir_contents(&mut Vec::new(), &mut Vec::new(), &dir, &mut app);
+        return Ok(());
+    }
 
     let mut dirs = Vec::new();
     let mut files = Vec::new();
 
-    let default_args = &[CStr::from_bytes(b".\0")];
-    let args = if app.args.is_empty() {
-        default_args
-    } else {
-        app.args.as_slice()
-    };
-
     if app.list_directory_contents {
-        for arg in args.iter().copied() {
+        for arg in app.args.iter() {
             match Directory::open(arg) {
                 Ok(d) => dirs.push((arg, d)),
                 Err(Error(20)) => files.push((
@@ -65,7 +65,7 @@ fn main() -> Result<(), Error> {
             }
         }
     } else {
-        for arg in args.iter().copied() {
+        for arg in app.args.iter() {
             files.push((
                 DirEntry {
                     name: arg,
@@ -114,7 +114,10 @@ fn main() -> Result<(), Error> {
         let mut path = Vec::new();
         path.extend(name.as_bytes());
         let status = syscalls::fstat(dir.raw_fd()).unwrap();
-        let mut stack = vec![(status.st_dev, status.st_ino)];
+        let mut stack = Vec::new();
+        if app.recurse {
+            stack.push((status.st_dev, status.st_ino));
+        }
         list_dir_contents(&mut stack, &mut path, dir, &mut app);
         // When recursing the recursion handles newlines, if not we need to check if we're on the
         // last and print a newline
@@ -185,7 +188,7 @@ fn list_dir_contents(
         entries.push((e.into(), None));
     }
 
-    if app.args.len() > 1 || app.recurse {
+    if matches!(app.args, Args::Multiple) || app.recurse {
         if path.len() > 1 && path.last() == Some(&0) {
             path.pop();
         }

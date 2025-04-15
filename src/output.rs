@@ -441,7 +441,6 @@ impl Writable for &[u8] {
 
 impl<const N: usize> Writable for &[u8; N] {
     fn write(&self, out: &mut OutputBuffer) {
-        #[allow(clippy::explicit_auto_deref)] // Invalid suggestion
         out.write(*self);
     }
 }
@@ -526,7 +525,7 @@ where
 }
 
 pub struct OutputBuffer {
-    buf: [u8; 4096],
+    buf: [u8; Self::BUF_LEN],
     buf_used: usize,
     style: Style,
     fd: i32,
@@ -534,9 +533,11 @@ pub struct OutputBuffer {
 }
 
 impl OutputBuffer {
-    pub fn to_fd(fd: libc::c_int) -> Self {
+    const BUF_LEN: usize = 1024;
+
+    pub const fn to_fd(fd: libc::c_int) -> Self {
         Self {
-            buf: [0u8; 4096],
+            buf: [0u8; Self::BUF_LEN],
             buf_used: 0,
             style: Style::Reset,
             color: true,
@@ -556,7 +557,7 @@ impl OutputBuffer {
     }
 
     #[inline(never)]
-    pub fn flush(&mut self) -> &mut [u8; 4096] {
+    pub fn flush(&mut self) -> &mut [u8; Self::BUF_LEN] {
         write_all(&self.buf[..self.buf_used], self.fd);
         self.buf_used = 0;
         &mut self.buf
