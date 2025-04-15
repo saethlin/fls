@@ -3,6 +3,7 @@ use crate::{
     utils::memcmp,
     Style,
 };
+use core::ffi::c_ulong;
 use veneer::{
     fs::{DType, Directory},
     syscalls, CStr,
@@ -10,7 +11,7 @@ use veneer::{
 
 pub struct DirEntry<'a> {
     pub name: CStr<'a>,
-    pub inode: libc::c_ulong,
+    pub inode: c_ulong,
     pub d_type: DType,
 }
 
