@@ -12,7 +12,7 @@ include = ["src/**/*.rs", "build.rs", "README.md", "LICENSE-MIT", "LICENSE-APACH
 [dependencies]
 veneer = { version = "0.2.2", features = ["rt"] }
 libc = "0.2"
-unicode-width = "0.1"
+unicode-width = "0.2"
 
 [profile.dev]
 panic = "abort"
