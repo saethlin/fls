@@ -1,6 +1,6 @@
 use crate::output::OutputBuffer;
 use alloc::vec::Vec;
-use veneer::{syscalls::*, CStr, Error};
+use veneer::{env, syscalls::*, CStr, Error};
 
 macro_rules! error {
     ($($item:expr),+) => {
@@ -33,7 +33,7 @@ pub struct App {
     pub print_group: bool,
     pub color: Color,
 
-    pub args: Vec<CStr<'static>>,
+    pub args: Args,
 
     etc_passwd: &'static [u8],
     uid_names: Vec<(u32, (usize, usize))>,
@@ -102,50 +102,62 @@ pub enum DisplayMode {
 }
 
 impl App {
+    pub const DEFAULT: Self = Self {
+        print_inode: false,
+        block_size_is_kilobytes: false,
+        replace_unprintable_bytes: false,
+        reverse_sorting: false,
+        grid_sort_direction: SortDirection::Horizontal,
+        display_size_in_blocks: false,
+        display_mode: DisplayMode::Grid(0),
+        show_all: ShowAll::No,
+        suffixes: Suffixes::None,
+        follow_symlinks: FollowSymlinks::Never,
+        recurse: false,
+        sort_field: Some(SortField::Name),
+        time_field: TimeField::Modified,
+        list_directory_contents: true,
+        convert_id_to_name: true,
+        print_owner: true,
+        print_group: true,
+        color: Color::Auto,
+        out: OutputBuffer::to_fd(1),
+        args: Args::None,
+        uid_names: Vec::new(),
+        gid_names: Vec::new(),
+        etc_passwd: &[],
+        etc_group: &[],
+        needs_details: false,
+        tzinfo: None,
+    };
+
     #[inline(never)]
-    pub fn from_arguments(raw_args: impl Iterator<Item = CStr<'static>>) -> Result<Self, Error> {
+    pub fn init(&mut self) -> Result<(), Error> {
+        let app = self;
+
+        app.args = Args::new();
+
+        #[allow(non_snake_case)]
+        let mut switches_contains_H_or_L = false;
+        for arg in env::args().skip(1) {
+            if arg.get(0) == Some(b'-') {
+                for switch in arg.as_bytes().iter().copied().skip(1) {
+                    if switch == b'H' || switch == b'L' {
+                        switches_contains_H_or_L = true;
+                        break;
+                    }
+                }
+            }
+        }
+
         let mut print_version = false;
-        let mut switches = Vec::with_capacity(64);
         let mut args_valid = true;
 
-        let mut hit_only_arg_marker = false;
-
-        let mut app = App {
-            print_inode: false,
-            block_size_is_kilobytes: false,
-            replace_unprintable_bytes: false,
-            reverse_sorting: false,
-            grid_sort_direction: SortDirection::Horizontal,
-            display_size_in_blocks: false,
-            display_mode: DisplayMode::Grid(0),
-            show_all: ShowAll::No,
-            suffixes: Suffixes::None,
-            follow_symlinks: FollowSymlinks::Never,
-            recurse: false,
-            sort_field: Some(SortField::Name),
-            time_field: TimeField::Modified,
-            list_directory_contents: true,
-            convert_id_to_name: true,
-            print_owner: true,
-            print_group: true,
-            color: Color::Auto,
-            out: OutputBuffer::to_fd(1),
-            args: Vec::with_capacity(4),
-            uid_names: Vec::new(),
-            gid_names: Vec::new(),
-            etc_passwd: &[],
-            etc_group: &[],
-            needs_details: false,
-            tzinfo: None,
-        };
-
-        for arg in raw_args.skip(1) {
+        for arg in env::args().skip(1) {
             if arg.as_bytes() == b"--" {
-                hit_only_arg_marker = true;
-            } else if hit_only_arg_marker {
-                app.args.push(arg);
-            // Things like --color=always
+                break;
             } else if arg.as_bytes().starts_with(b"--") {
+                // Things like --color=always
                 match arg.as_bytes() {
                     b"--color=never" => app.color = Color::Never,
                     b"--color=auto" => app.color = Color::Auto,
@@ -156,123 +168,12 @@ impl App {
                         args_valid = false;
                     }
                 }
-            // Things like -R
             } else if arg.get(0) == Some(b'-') {
-                switches.extend(arg.as_bytes().iter().copied().skip(1));
-            } else {
-                app.args.push(arg);
-            }
-        }
-
-        #[allow(non_snake_case)]
-        let mut switches_contains_H_or_L = false;
-        for s in &switches {
-            if s == &b'H' || s == &b'L' {
-                switches_contains_H_or_L = true;
-                break;
-            }
-        }
-
-        for switch in switches.iter().copied() {
-            match switch {
-                b'A' => {
-                    app.show_all = ShowAll::Almost;
-                }
-                b'C' => {
-                    app.display_mode = DisplayMode::Grid(0);
-                    app.grid_sort_direction = SortDirection::Vertical;
-                }
-                b'F' => {
-                    if !switches_contains_H_or_L {
-                        app.follow_symlinks = FollowSymlinks::Never;
+                // Things like -R
+                for switch in arg.as_bytes().iter().copied().skip(1) {
+                    if app.handle_switch(switches_contains_H_or_L, switch).is_err() {
+                        args_valid = false;
                     }
-                    app.suffixes = Suffixes::All;
-                }
-                b'H' => {
-                    app.follow_symlinks = FollowSymlinks::WhenExplicit;
-                }
-                b'L' => {
-                    app.follow_symlinks = FollowSymlinks::Always;
-                }
-                b'R' => {
-                    app.recurse = true;
-                }
-                b'S' => {
-                    app.sort_field = Some(SortField::Size);
-                }
-                b'a' => {
-                    app.show_all = ShowAll::Yes;
-                }
-                b'c' => {
-                    app.time_field = TimeField::StatusChanged;
-                    app.sort_field = Some(SortField::Time);
-                }
-                b'd' => {
-                    if !switches_contains_H_or_L {
-                        app.follow_symlinks = FollowSymlinks::Never;
-                    }
-                    app.list_directory_contents = false;
-                }
-                b'f' => {
-                    app.sort_field = None;
-                    app.show_all = ShowAll::Yes;
-                }
-                b'g' => {
-                    app.display_mode = DisplayMode::Long;
-                    app.print_owner = false;
-                }
-                b'i' => {
-                    app.print_inode = true;
-                }
-                b'k' => {
-                    app.block_size_is_kilobytes = true;
-                }
-                b'l' => {
-                    app.display_mode = DisplayMode::Long;
-                }
-                b'm' => {
-                    app.display_mode = DisplayMode::Stream;
-                }
-                b'n' => {
-                    app.display_mode = DisplayMode::Long;
-                    app.convert_id_to_name = false;
-                }
-                b'o' => {
-                    app.display_mode = DisplayMode::Long;
-                    app.print_group = false;
-                }
-                b'p' => {
-                    app.suffixes = Suffixes::Directories;
-                }
-                b'q' => {
-                    app.replace_unprintable_bytes = true;
-                    unimplemented!("-q is not yet implemented");
-                }
-                b'r' => {
-                    app.reverse_sorting = true;
-                }
-                b's' => {
-                    app.display_size_in_blocks = true;
-                }
-                b't' => {
-                    app.time_field = TimeField::Modified;
-                    app.sort_field = Some(SortField::Time);
-                }
-                b'u' => {
-                    app.time_field = TimeField::Accessed;
-                    app.sort_field = Some(SortField::Time);
-                }
-                b'x' => {
-                    app.grid_sort_direction = SortDirection::Horizontal;
-                    unimplemented!("-x is not yet implemented");
-                }
-                b'1' => match app.display_mode {
-                    DisplayMode::Long => {}
-                    _ => app.display_mode = DisplayMode::SingleColumn,
-                },
-                s => {
-                    error!("invalid option \'", s, "\'\n");
-                    args_valid = false;
                 }
             }
         }
@@ -319,7 +220,114 @@ impl App {
             || app.sort_field == Some(SortField::Size)
             || app.display_size_in_blocks;
 
-        Ok(app)
+        Ok(())
+    }
+
+    #[allow(non_snake_case)]
+    fn handle_switch(&mut self, switches_contains_H_or_L: bool, switch: u8) -> Result<(), ()> {
+        let app = self;
+        match switch {
+            b'A' => {
+                app.show_all = ShowAll::Almost;
+            }
+            b'C' => {
+                app.display_mode = DisplayMode::Grid(0);
+                app.grid_sort_direction = SortDirection::Vertical;
+            }
+            b'F' => {
+                if !switches_contains_H_or_L {
+                    app.follow_symlinks = FollowSymlinks::Never;
+                }
+                app.suffixes = Suffixes::All;
+            }
+            b'H' => {
+                app.follow_symlinks = FollowSymlinks::WhenExplicit;
+            }
+            b'L' => {
+                app.follow_symlinks = FollowSymlinks::Always;
+            }
+            b'R' => {
+                app.recurse = true;
+            }
+            b'S' => {
+                app.sort_field = Some(SortField::Size);
+            }
+            b'a' => {
+                app.show_all = ShowAll::Yes;
+            }
+            b'c' => {
+                app.time_field = TimeField::StatusChanged;
+                app.sort_field = Some(SortField::Time);
+            }
+            b'd' => {
+                if !switches_contains_H_or_L {
+                    app.follow_symlinks = FollowSymlinks::Never;
+                }
+                app.list_directory_contents = false;
+            }
+            b'f' => {
+                app.sort_field = None;
+                app.show_all = ShowAll::Yes;
+            }
+            b'g' => {
+                app.display_mode = DisplayMode::Long;
+                app.print_owner = false;
+            }
+            b'i' => {
+                app.print_inode = true;
+            }
+            b'k' => {
+                app.block_size_is_kilobytes = true;
+            }
+            b'l' => {
+                app.display_mode = DisplayMode::Long;
+            }
+            b'm' => {
+                app.display_mode = DisplayMode::Stream;
+            }
+            b'n' => {
+                app.display_mode = DisplayMode::Long;
+                app.convert_id_to_name = false;
+            }
+            b'o' => {
+                app.display_mode = DisplayMode::Long;
+                app.print_group = false;
+            }
+            b'p' => {
+                app.suffixes = Suffixes::Directories;
+            }
+            b'q' => {
+                app.replace_unprintable_bytes = true;
+                unimplemented!("-q is not yet implemented");
+            }
+            b'r' => {
+                app.reverse_sorting = true;
+            }
+            b's' => {
+                app.display_size_in_blocks = true;
+            }
+            b't' => {
+                app.time_field = TimeField::Modified;
+                app.sort_field = Some(SortField::Time);
+            }
+            b'u' => {
+                app.time_field = TimeField::Accessed;
+                app.sort_field = Some(SortField::Time);
+            }
+            b'x' => {
+                app.grid_sort_direction = SortDirection::Horizontal;
+                unimplemented!("-x is not yet implemented");
+            }
+            b'1' => match app.display_mode {
+                DisplayMode::Long => {}
+                _ => app.display_mode = DisplayMode::SingleColumn,
+            },
+            s => {
+                error!("invalid option \'", s, "\'\n");
+                return Err(());
+            }
+        }
+        Ok(())
     }
 
     pub fn convert_to_localtime(&self, time: i64) -> crate::time::LocalTime {
@@ -387,6 +395,78 @@ impl App {
                 Modified => status.st_mtime,
                 StatusChanged => status.st_ctime,
             },
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum Args {
+    None,
+    One,
+    Multiple,
+}
+
+struct ArgsIter<I> {
+    iter: I,
+    hit_only_arg_marker: bool,
+    any_args: bool,
+}
+
+impl Args {
+    fn new() -> Self {
+        let mut args = 0usize;
+        let mut hit_only_arg_marker = false;
+        for arg in veneer::env::args().skip(1) {
+            if arg.as_bytes() == b"--" {
+                hit_only_arg_marker = true;
+                continue;
+            }
+            if hit_only_arg_marker || arg.as_bytes().first() != Some(&b'-') {
+                args += 1;
+            }
+            if args > 1 {
+                return Args::Multiple;
+            }
+        }
+        // We should break out above to handle the more-than-one case faster
+        match args {
+            0 => Args::None,
+            1 => Args::One,
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn iter(self) -> impl Iterator<Item = CStr<'static>> {
+        ArgsIter {
+            iter: veneer::env::args().skip(1),
+            hit_only_arg_marker: false,
+            any_args: false,
+        }
+    }
+}
+
+impl<I> Iterator for ArgsIter<I>
+where
+    I: Iterator<Item = CStr<'static>>,
+{
+    type Item = CStr<'static>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for arg in self.iter.by_ref() {
+            if self.hit_only_arg_marker || arg.as_bytes().first() != Some(&b'-') {
+                self.any_args = true;
+                return Some(arg);
+            }
+            if arg.as_bytes() == b"--" {
+                self.hit_only_arg_marker = true;
+                continue;
+            }
+        }
+        if !self.any_args {
+            self.any_args = true;
+            Some(CStr::from_bytes(b".\0"))
+        } else {
+            None
         }
     }
 }
