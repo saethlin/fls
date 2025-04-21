@@ -3,34 +3,15 @@ use crate::{
     utils::memcmp,
     Style,
 };
-use core::ffi::c_ulong;
 use veneer::{
     fs::{DType, Directory},
-    syscalls, CStr,
+    libc, syscalls, CStr,
 };
-
-pub struct DirEntry<'a> {
-    pub name: CStr<'a>,
-    pub inode: c_ulong,
-    pub d_type: DType,
-}
-
-impl<'a> From<veneer::fs::DirEntry<'a>> for DirEntry<'a> {
-    fn from(other: veneer::fs::DirEntry<'a>) -> Self {
-        Self {
-            name: other.name(),
-            inode: other.inode(),
-            d_type: other.d_type(),
-        }
-    }
-}
 
 pub trait DirEntryExt {
     fn name(&self) -> CStr;
     fn style(&self, dir: &Directory, app: &App) -> (Style, Option<u8>);
-    fn inode(&self) -> u64;
-    fn blocks(&self) -> u64;
-    fn time(&self) -> libc::time_t;
+    fn d_type(&self) -> DType;
 }
 
 #[derive(Clone, Copy)]
@@ -67,29 +48,13 @@ impl EntryType {
     }
 }
 
-impl DirEntryExt for (DirEntry<'_>, Option<crate::Status>) {
+impl DirEntryExt for (veneer::fs::DirEntry<'_>, Option<&crate::Status>) {
     fn name(&self) -> CStr {
-        self.0.name
+        self.0.name()
     }
 
-    fn inode(&self) -> u64 {
-        self.0.inode
-    }
-
-    fn blocks(&self) -> u64 {
-        if let Some(st) = &self.1 {
-            st.blocks as u64
-        } else {
-            0
-        }
-    }
-
-    fn time(&self) -> libc::time_t {
-        if let Some(st) = &self.1 {
-            st.time
-        } else {
-            0
-        }
+    fn d_type(&self) -> DType {
+        self.0.d_type()
     }
 
     fn style(&self, dir: &veneer::fs::Directory, app: &App) -> (Style, Option<u8>) {
@@ -99,10 +64,10 @@ impl DirEntryExt for (DirEntry<'_>, Option<crate::Status>) {
         let entry_type = if let Some(status) = &self.1 {
             entry_type_from_status(status)
         } else if app.color == Color::Never && app.suffixes == crate::cli::Suffixes::None {
-            // DO nothing extra if no colors and no suffixes are required
+            // Do nothing extra if no colors and no suffixes are required
             Regular
         } else if app.color == Color::Auto {
-            match self.0.d_type {
+            match self.d_type() {
                 DType::DIR => Directory,
                 DType::FIFO => Fifo,
                 DType::SOCK => Socket,
@@ -111,7 +76,7 @@ impl DirEntryExt for (DirEntry<'_>, Option<crate::Status>) {
                 DType::REG | DType::UNKNOWN => Regular,
             }
         } else {
-            match self.0.d_type {
+            match self.d_type() {
                 DType::DIR => Directory,
                 DType::FIFO => Fifo,
                 DType::SOCK => Socket,
@@ -123,9 +88,9 @@ impl DirEntryExt for (DirEntry<'_>, Option<crate::Status>) {
                     .map(|_| Link)
                     .unwrap_or(BrokenLink),
                 DType::UNKNOWN => if app.follow_symlinks == FollowSymlinks::Always {
-                    syscalls::fstatat(dir.raw_fd(), self.0.name)
+                    syscalls::fstatat(dir.raw_fd(), self.name())
                 } else {
-                    syscalls::lstatat(dir.raw_fd(), self.0.name)
+                    syscalls::lstatat(dir.raw_fd(), self.name())
                 }
                 .map(|status| {
                     let status = app.convert_status(status);
@@ -136,7 +101,7 @@ impl DirEntryExt for (DirEntry<'_>, Option<crate::Status>) {
                         Fifo
                     } else if entry_type == libc::S_IFLNK {
                         if app.color == Color::Always
-                            && syscalls::faccessat(dir.raw_fd(), self.0.name, libc::F_OK).is_err()
+                            && syscalls::faccessat(dir.raw_fd(), self.name(), libc::F_OK).is_err()
                         {
                             BrokenLink
                         } else {

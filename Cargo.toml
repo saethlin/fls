@@ -10,8 +10,7 @@ edition = "2018"
 include = ["src/**/*.rs", "build.rs", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-veneer = { version = "0.2.2", features = ["rt"] }
-libc = "0.2"
+veneer = { path = "veneer", features = ["rt"] }
 unicode-width = "0.2"
 
 [profile.dev]
@@ -21,4 +20,4 @@ panic = "abort"
 panic = "abort"
 codegen-units = 1
 lto = "fat"
-debug = "line-tables-only"
+debug = 2

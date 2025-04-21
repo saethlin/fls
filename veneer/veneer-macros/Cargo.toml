@@ -1,0 +1,13 @@
+[package]
+name = "veneer-macros"
+version = "0.1.0"
+authors = ["Ben Kimock <kimockb@gmail.com>"]
+license = "MIT OR Apache-2.0"
+description = "veneer's proc macros"
+documentation = "https://docs.rs/veneer-macros"
+repository = "https://github.com/saethlin/veneer"
+edition = "2018"
+include = ["src/**/*.rs", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+proc-macro = true

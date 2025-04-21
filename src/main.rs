@@ -12,14 +12,13 @@ mod utils;
 
 use crate::{
     cli::{App, Args, DisplayMode, ShowAll, SortField},
-    directory::{DirEntry, DirEntryExt},
     output::*,
     style::Style,
 };
 use alloc::vec::Vec;
 use veneer::{
-    fs::{DType, Directory},
-    syscalls, CStr, Error,
+    fs::{DType, DirEntry, Directory},
+    libc, syscalls, CStr, Error,
 };
 
 #[veneer::main]
@@ -40,43 +39,36 @@ fn main() -> Result<(), Error> {
         for arg in app.args.iter() {
             match Directory::open(arg) {
                 Ok(d) => dirs.push((arg, d)),
-                Err(Error(20)) => files.push((
-                    DirEntry {
-                        name: arg,
-                        inode: 0,
-                        d_type: DType::UNKNOWN,
-                    },
-                    None,
-                )),
+                Err(Error(20)) => files.push(DirEntry {
+                    name: arg,
+                    inode: 0,
+                    d_type: DType::UNKNOWN,
+                }),
                 Err(_) => {
                     if let Err(err) = veneer::syscalls::fstatat(libc::AT_FDCWD, arg) {
                         access_error(&arg, err);
                     } else {
-                        files.push((
-                            DirEntry {
-                                name: arg,
-                                inode: 0,
-                                d_type: DType::UNKNOWN,
-                            },
-                            None,
-                        ));
+                        files.push(DirEntry {
+                            name: arg,
+                            inode: 0,
+                            d_type: DType::UNKNOWN,
+                        });
                     }
                 }
             }
         }
     } else {
         for arg in app.args.iter() {
-            files.push((
-                DirEntry {
-                    name: arg,
-                    inode: 0,
-                    d_type: DType::UNKNOWN,
-                },
-                None,
-            ));
+            files.push(DirEntry {
+                name: arg,
+                inode: 0,
+                d_type: DType::UNKNOWN,
+            });
         }
     }
 
+    // FIXME
+    /*
     if !files.is_empty() {
         let dir = Directory::open(CStr::from_bytes(b".\0")).unwrap();
         if app.needs_details {
@@ -105,6 +97,7 @@ fn main() -> Result<(), Error> {
             DisplayMode::Stream => write_stream(&files, &dir, &mut app),
         }
     }
+    */
 
     if !dirs.is_empty() && !files.is_empty() {
         app.out.push(b'\n');
@@ -129,28 +122,44 @@ fn main() -> Result<(), Error> {
     Ok(())
 }
 
-fn sort_entries(entries: &mut [(DirEntry, Option<Status>)], app: &App) {
-    if let Some(field) = app.sort_field {
-        entries.sort_unstable_by(|a, b| {
-            let mut ordering = match field {
-                SortField::Time => b
-                    .time()
-                    .cmp(&a.time())
-                    .then_with(|| vercmp(a.name(), b.name())),
-                SortField::Size => {
-                    b.1.clone()
-                        .unwrap_or_default()
-                        .size
-                        .cmp(&a.1.clone().unwrap_or_default().size)
-                        .then_with(|| vercmp(a.name(), b.name()))
-                }
-                SortField::Name => vercmp(a.name(), b.name()),
-            };
-            if app.reverse_sorting {
-                ordering = ordering.reverse();
+use veneer::fs::BorrowedDirectoryContents;
+fn sort_entries(entries: &mut BorrowedDirectoryContents, details: &[Status], app: &App) {
+    let Some(field) = app.sort_field else {
+        return;
+    };
+
+    entries.sort_unstable_by(|(i_a, a), (i_b, b)| {
+        let mut ordering = match field {
+            SortField::Name => vercmp(a.name(), b.name()),
+            SortField::Time => {
+                let a_details = &details[i_a];
+                let b_details = &details[i_b];
+                b_details
+                    .time
+                    .cmp(&a_details.time)
+                    .then_with(|| vercmp(a.name(), b.name()))
             }
-            ordering
-        });
+            SortField::Size => {
+                let a_details = &details[i_a];
+                let b_details = &details[i_b];
+                b_details
+                    .size
+                    .cmp(&a_details.size)
+                    .then_with(|| vercmp(a.name(), b.name()))
+            }
+        };
+        if app.reverse_sorting {
+            ordering = ordering.reverse();
+        }
+        ordering
+    });
+}
+
+fn is_visible(app: &mut App, name: &[u8]) -> bool {
+    match app.show_all {
+        ShowAll::No => name.get(0) != Some(&b'.'),
+        ShowAll::Almost => !(name == b".\0" || name == b"..\0"),
+        ShowAll::Yes => true,
     }
 }
 
@@ -160,33 +169,15 @@ fn list_dir_contents(
     dir: &Directory,
     app: &mut App,
 ) {
-    let contents = match dir.read() {
+    let mut contents = match dir.read(|entry| is_visible(app, entry)) {
         Ok(c) => c,
         Err(err) => {
             access_error(path, err);
             return;
         }
     };
-    let hint = contents.iter().size_hint();
-    let mut entries = Vec::with_capacity(hint.1.unwrap_or(hint.0));
 
-    for e in contents.iter() {
-        match app.show_all {
-            ShowAll::No => {
-                if e.name().get(0) == Some(b'.') {
-                    continue;
-                }
-            }
-            ShowAll::Almost => {
-                let name = e.name().as_bytes();
-                if name == b"." || name == b".." {
-                    continue;
-                }
-            }
-            ShowAll::Yes => {}
-        }
-        entries.push((e.into(), None));
-    }
+    let mut entries = contents.index();
 
     if matches!(app.args, Args::Multiple) || app.recurse {
         if path.len() > 1 && path.last() == Some(&0) {
@@ -198,59 +189,64 @@ fn list_dir_contents(
         app.out.write(path).write(b":\n");
     }
 
+    let mut details = Vec::new();
     if app.needs_details {
-        for e in &mut entries {
+        details.reserve(entries.len());
+        for e in entries.iter() {
             let status = if app.follow_symlinks == cli::FollowSymlinks::Always {
                 syscalls::fstatat(dir.raw_fd(), e.name())
             } else {
                 syscalls::lstatat(dir.raw_fd(), e.name())
             }
             .map(|status| app.convert_status(status));
-            match status {
-                Ok(s) => e.1 = Some(s),
+            let status = match status {
+                Ok(s) => s,
                 Err(err) => {
                     access_error(&e.name(), err);
+                    Status::default()
                 }
-            }
+            };
+            details.push(status);
         }
-    }
+    };
 
-    sort_entries(&mut entries, app);
+    sort_entries(&mut entries, &details, app);
 
     match app.display_mode {
-        DisplayMode::Grid(width) => write_grid(&entries, dir, app, width),
-        DisplayMode::Long => write_details(&entries, dir, app),
-        DisplayMode::SingleColumn => write_single_column(&entries, dir, app),
-        DisplayMode::Stream => write_stream(&entries, dir, app),
+        DisplayMode::Grid(width) => write_grid(&entries, &details, dir, app, width),
+        DisplayMode::Long => write_details(&entries, &details, dir, app),
+        DisplayMode::SingleColumn => write_single_column(&entries, &details, dir, app),
+        DisplayMode::Stream => write_stream(&entries, &details, dir, app),
     }
     app.out.flush();
 
     if app.recurse {
         app.out.push(b'\n');
-        for e in entries
-            .iter()
-            .filter_map(|(e, status)| {
-                if let Some(st) = status {
-                    if st.mode & libc::S_IFMT == libc::S_IFDIR {
-                        Some(e)
-                    } else {
-                        None
-                    }
-                } else {
-                    Some(e)
+        for (i, entry) in entries.iter_enumerated() {
+            // If we have stat details for the entry, skip over if it we know it's not a
+            // directory.
+            if let Some(st) = details.get(i) {
+                if st.mode & libc::S_IFMT != libc::S_IFDIR {
+                    continue;
                 }
-            })
-            .filter(|e| e.name.as_bytes() != b"..")
-            .filter(|e| e.name.as_bytes() != b".")
-            .filter(|e| e.d_type == DType::DIR || e.d_type == DType::UNKNOWN)
-        {
+            }
+            // Skip the magic . and .. entries
+            if entry.name.as_bytes() == b".." || entry.name.as_bytes() == b"." {
+                continue;
+            }
+
+            match entry.d_type {
+                DType::DIR | DType::UNKNOWN => {}
+                _ => continue,
+            }
+
             if path.last() == Some(&0) {
                 path.pop();
             }
             if path.last() != Some(&b'/') {
                 path.push(b'/');
             }
-            path.extend(e.name.as_bytes());
+            path.extend(entry.name.as_bytes());
             path.push(0);
             match Directory::open(CStr::from_bytes(path)) {
                 Ok(dir) => {

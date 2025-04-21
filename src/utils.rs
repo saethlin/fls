@@ -3,6 +3,7 @@ use crate::{
     CStr,
 };
 use alloc::vec::Vec;
+use veneer::libc;
 
 pub fn atoi(digits: &[u8]) -> u64 {
     let mut num = 0;

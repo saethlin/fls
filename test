@@ -1,0 +1,29 @@
+#!/bin/bash
+
+set -eu
+
+cargo build
+
+for displaymode in "" "1" "l" "m"
+do
+    for showall in "" "A" "a"
+    do
+        for sortorder in "" "S" "c" "t" "u"
+        do
+            switches="${displaymode}${showall}${sortorder}"
+            if [[ "$switches" != "" ]]
+            then
+                EXPECTED=$(ls -$switches)
+                GOT=$(./target/debug/fls -$switches)
+            else
+                EXPECTED=$(ls)
+                GOT=$(./target/debug/fls)
+            fi
+            if [[ "$EXPECTED" != "$GOT" ]]
+            then
+                echo "Test failed: $switches"
+                git diff --no-index <(echo "$EXPECTED") <(echo "$GOT")
+            fi
+        done
+    done
+done

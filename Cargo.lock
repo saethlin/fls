@@ -12,16 +12,9 @@ checksum = "5c8214115b7bf84099f1309324e63141d4c5d7cc26862f97a0a857dbefe165bd"
 name = "fls"
 version = "0.1.0"
 dependencies = [
- "libc",
  "unicode-width",
  "veneer",
 ]
-
-[[package]]
-name = "libc"
-version = "0.2.171"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c19937216e9d3aa9956d9bb8dfc0b0c8beb6058fc4f7a4dc4d850edf86a237d6"
 
 [[package]]
 name = "sc"
@@ -37,12 +30,9 @@ checksum = "1fc81956842c57dac11422a97c3b8195a1ff727f06e85c84ed2e8aa277c9a0fd"
 
 [[package]]
 name = "veneer"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b6b0c82201b608c8528e61f8c58463e9fe9bf4f9d1de31c81c30c053605bdd0"
+version = "0.3.0"
 dependencies = [
  "bitflags",
- "libc",
  "sc",
  "veneer-macros",
 ]
@@ -50,5 +40,3 @@ dependencies = [
 [[package]]
 name = "veneer-macros"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32601344864a9c847d17659705ec942c2e8d9c6ea04e4bc9923164a31ca2697f"
