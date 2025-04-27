@@ -1,6 +1,6 @@
 use crate::output::OutputBuffer;
 use alloc::vec::Vec;
-use veneer::{env, syscalls::*, CStr, Error};
+use veneer::{env, libc, syscalls::*, CStr, Error};
 
 macro_rules! error {
     ($($item:expr),+) => {

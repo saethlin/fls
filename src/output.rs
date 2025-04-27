@@ -1,14 +1,13 @@
-use crate::{
-    cli::App,
-    directory::{DirEntry, DirEntryExt},
-    utils::Buffer,
-    Status, Style,
-};
+use crate::{cli::App, directory::DirEntryExt, utils::Buffer, Status, Style};
 use alloc::vec::Vec;
 use core::ffi::c_int;
-use veneer::{fs::Directory, syscalls, CStr};
+use veneer::{
+    fs::Directory,
+    libc,
+    libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR},
+    syscalls, CStr,
+};
 
-use libc::{S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR, S_IXGRP, S_IXOTH, S_IXUSR};
 use unicode_width::UnicodeWidthStr;
 
 #[macro_export]
@@ -36,7 +35,12 @@ fn print_rwx(app: &mut App, mode: u32, read_mask: u32, write_mask: u32, execute_
     }
 }
 
-pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, app: &mut App) {
+pub fn write_details(
+    entries: &BorrowedDirectoryContents,
+    details: &[Status],
+    dir: &Directory,
+    app: &mut App,
+) {
     use Style::*;
 
     let mut longest_name_len = 1;
@@ -47,7 +51,7 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
     let mut inode_len = 0;
     let mut blocks_len = 0;
 
-    for status in entries.iter().filter_map(|e| e.1.as_ref()) {
+    for status in details {
         if app.print_owner {
             longest_name_len = longest_name_len.max(app.getpwuid(status.uid).len());
         }
@@ -74,9 +78,8 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
     let current_time = syscalls::gettimeofday().unwrap().tv_sec;
     let one_year = 365 * 24 * 60 * 60;
 
-    for direntry in entries {
-        let e = &direntry.0;
-        let status = direntry.1.clone().unwrap_or_default();
+    for (i, entry) in entries.iter_enumerated() {
+        let status = details.get(i).cloned().unwrap_or_default();
         let mode = status.mode;
 
         if app.print_inode {
@@ -151,21 +154,21 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
 
         app.out.push(b' ');
 
-        let (mut style, suffix) = direntry.style(dir, app);
+        let (mut style, suffix) = (entry, details.get(i)).style(dir, app);
         // FIXME: This is a hack to get red-colored broken symlinks in -l output.
         // This logic is at completely the wrong place, and it's setting the style to RedBold, not
         // BrokenLink.
         if (mode & libc::S_IFMT) == libc::S_IFLNK
             && app.color == crate::cli::Color::Always
-            && syscalls::faccessat(dir.raw_fd(), e.name, libc::F_OK).is_err()
+            && syscalls::faccessat(dir.raw_fd(), entry.name(), libc::F_OK).is_err()
         {
             style = RedBold;
         }
-        print!(app, style, e.name, suffix.map(|s| (White, s)));
+        print!(app, style, entry.name(), suffix.map(|s| (White, s)));
 
         if (mode & libc::S_IFMT) == libc::S_IFLNK {
             let mut buf = [0u8; 1024];
-            if let Ok(linked_to) = syscalls::readlinkat(dir.raw_fd(), e.name, &mut buf) {
+            if let Ok(linked_to) = syscalls::readlinkat(dir.raw_fd(), entry.name(), &mut buf) {
                 print!(app, Gray, " -> ", White, linked_to);
             }
         }
@@ -174,15 +177,11 @@ pub fn write_details(entries: &[(DirEntry, Option<Status>)], dir: &Directory, ap
     }
 }
 
-fn print_total_blocks(entries: &[(DirEntry, Option<Status>)], app: &mut App) {
+fn print_total_blocks(status: &[Status], app: &mut App) {
     print!(
         app,
         "total ",
-        entries
-            .iter()
-            .filter_map(|(_, s)| s.as_ref())
-            .map(|status| status.blocks)
-            .sum::<i64>() as u64,
+        status.iter().map(|status| status.blocks).sum::<i64>() as u64,
         "\n"
     );
 }
@@ -195,7 +194,8 @@ pub struct LayoutCursor {
 }
 
 pub fn write_grid(
-    entries: &[(DirEntry, Option<Status>)],
+    entries: &BorrowedDirectoryContents,
+    details: &[Status],
     dir: &Directory,
     app: &mut App,
     terminal_width: usize,
@@ -203,12 +203,16 @@ pub fn write_grid(
     use Style::*;
 
     if app.display_size_in_blocks {
-        print_total_blocks(entries, app);
+        print_total_blocks(details, app);
     }
 
-    if entries.is_empty() {
+    if entries.len() == 0 {
         return;
     }
+
+    // This needs essentially random access into the entries list, and will be allocation-happy
+    // later anyway.
+    let entries: Vec<_> = entries.iter().collect();
 
     let inode_len = if app.print_inode {
         let inode = entries.iter().map(|e| e.inode()).max().unwrap_or(0);
@@ -218,9 +222,8 @@ pub fn write_grid(
     };
 
     let blocks_len = if app.display_size_in_blocks {
-        let blocks = entries
+        let blocks = details
             .iter()
-            .filter_map(|(_, s)| s.as_ref())
             .map(|status| status.blocks)
             .max()
             .unwrap_or(0);
@@ -260,8 +263,9 @@ pub fn write_grid(
         }
     }
 
-    for entry in entries {
-        let style = entry.style(dir, app);
+    for (i, entry) in entries.iter().enumerate() {
+        let status = details.get(i);
+        let style = (*entry, status).style(dir, app);
         let len =
             len_utf8(entry.name().as_bytes()) + style.1.is_some() as usize + inode_len + blocks_len;
         lengths.push(len);
@@ -302,14 +306,12 @@ pub fn write_grid(
 
     for r in 0..rows {
         for (c, width) in widths.iter().enumerate() {
-            let (e, name_len, (style, suffix)) = match (
-                entries.get(c * rows + r),
-                lengths.get(c * rows + r),
-                styles.get(c * rows + r),
-            ) {
-                (Some(e), Some(name_len), Some(style)) => (e, name_len, style),
-                _ => continue,
-            };
+            let index = c * rows + r;
+            let (e, name_len, (style, suffix)) =
+                match (entries.get(index), lengths.get(index), styles.get(index)) {
+                    (Some(e), Some(name_len), Some(style)) => (e, name_len, style),
+                    _ => continue,
+                };
 
             if app.print_inode {
                 app.out
@@ -319,9 +321,10 @@ pub fn write_grid(
             }
 
             if app.display_size_in_blocks {
+                let status = details.get(index).cloned().unwrap_or_default();
                 app.out
                     .style(White)
-                    .align_right(e.blocks(), blocks_len)
+                    .align_right(status.blocks as u64, blocks_len)
                     .push(b' ');
             }
 
@@ -343,75 +346,83 @@ pub fn write_grid(
     app.out.flush();
 }
 
-pub fn write_stream(entries: &[(DirEntry, Option<Status>)], dir: &Directory, app: &mut App) {
+pub fn write_stream(
+    entries: &BorrowedDirectoryContents,
+    details: &[Status],
+    dir: &Directory,
+    app: &mut App,
+) {
     if app.display_size_in_blocks {
-        print_total_blocks(entries, app);
+        print_total_blocks(details, app);
     }
 
-    for e in entries.iter().take(entries.len() - 1) {
+    for (i, entry) in entries.iter_enumerated() {
+        let status = details.get(i).cloned().unwrap_or_default();
         if app.print_inode {
-            print!(app, Style::Magenta, e.inode(), " ");
+            print!(app, Style::Magenta, entry.inode(), " ");
         }
 
         if app.display_size_in_blocks {
-            print!(app, Style::White, e.blocks(), " ");
+            print!(app, Style::White, status.blocks, " ");
         }
 
-        let (style, suffix) = e.style(dir, app);
-        print!(
-            app,
-            style,
-            e.name(),
-            suffix.map(|s| (Style::White, s)),
-            Style::White,
-            ", "
-        );
-    }
-    if let Some(e) = entries.last() {
-        app.out.write(e.name().as_bytes());
+        let (style, suffix) = (entry, details.get(i)).style(dir, app);
+        print!(app, style, entry.name(), suffix.map(|s| (Style::White, s)));
+
+        if i != entries.len() {
+            print!(app, Style::White, ", ");
+        } else {
+            print!(app, Style::Reset);
+        }
     }
     app.out.push(b'\n');
 }
 
-pub fn write_single_column(entries: &[(DirEntry, Option<Status>)], dir: &Directory, app: &mut App) {
+use veneer::fs::BorrowedDirectoryContents;
+pub fn write_single_column(
+    entries: &BorrowedDirectoryContents,
+    details: &[Status],
+    dir: &Directory,
+    app: &mut App,
+) {
     if app.display_size_in_blocks {
-        print_total_blocks(entries, app);
+        print_total_blocks(details, app);
     }
 
     let inode_len = if app.print_inode {
-        let inode = entries.iter().map(DirEntryExt::inode).max().unwrap_or(0);
+        let inode = details.iter().map(|status| status.inode).max().unwrap_or(0);
         Buffer::new().format(inode).len()
     } else {
         0
     };
 
     let blocks_len = if app.display_size_in_blocks {
-        let blocks = entries.iter().map(DirEntryExt::blocks).max().unwrap_or(0);
+        let blocks = details.iter().map(|status| status.inode).max().unwrap_or(0);
         Buffer::new().format(blocks).len()
     } else {
         0
     };
 
-    for e in entries {
+    for (i, entry) in entries.iter_enumerated() {
         if app.print_inode {
             app.out
                 .style(Style::Magenta)
-                .align_right(e.inode(), inode_len)
+                .align_right(details[i].inode, inode_len)
                 .push(b' ');
         }
 
         if app.display_size_in_blocks {
             app.out
                 .style(Style::White)
-                .align_right(e.blocks(), blocks_len)
+                .align_right(details[i].blocks as u64, blocks_len)
                 .push(b' ');
         }
 
-        let (style, suffix) = e.style(dir, app);
+        let (style, suffix) = (entry, details.get(i)).style(dir, app);
         print!(
             app,
             style,
-            e.name(),
+            entry.name(),
             suffix.map(|s| (Style::White, s)),
             Style::Reset,
             "\n"
@@ -651,11 +662,33 @@ fn month_abbr(month: c_int) -> &'static [u8] {
 }
 
 // This code was translated almost directly from the implementation in GNU ls
-//
 pub fn vercmp(s1_cstr: CStr, s2_cstr: CStr) -> core::cmp::Ordering {
     use core::cmp::Ordering;
     let s1 = s1_cstr.as_bytes();
     let s2 = s2_cstr.as_bytes();
+    for (&s1, &s2) in s1_cstr
+        .as_bytes()
+        .iter()
+        .skip_while(|b| **b == b'.')
+        .zip(s2_cstr.as_bytes().iter().skip_while(|b| **b == b'.'))
+    {
+        let s1 = s1.to_ascii_lowercase();
+        let s2 = s2.to_ascii_lowercase();
+
+        if s1 == s2 {
+            continue;
+        }
+
+        if s1.is_ascii_alphanumeric() && !s2.is_ascii_alphanumeric() {
+            return Ordering::Less;
+        } else if s2.is_ascii_alphanumeric() && !s1.is_ascii_alphanumeric() {
+            return Ordering::Greater;
+        } else {
+            return s1.cmp(&s2);
+        }
+    }
+    s1.len().cmp(&s2.len())
+    /*
     let mut s1_pos: usize = 0;
     let mut s2_pos: usize = 0;
 
@@ -700,6 +733,7 @@ pub fn vercmp(s1_cstr: CStr, s2_cstr: CStr) -> core::cmp::Ordering {
         }
     }
     Ordering::Equal
+    */
 }
 
 trait SliceExt {

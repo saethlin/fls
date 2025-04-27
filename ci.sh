@@ -16,5 +16,5 @@ then
 else
     group cargo build
     group cargo build --release
-    group cargo build --release -Zbuild-std --target=x86_64-unknown-linux-gnu
+    group ./test
 fi

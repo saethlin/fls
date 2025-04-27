@@ -1,0 +1,21 @@
+[package]
+name = "veneer"
+version = "0.3.0"
+authors = ["Ben Kimock <kimockb@gmail.com>"]
+license = "MIT OR Apache-2.0"
+description = "A very thin std-like library that doesn't depend on libc"
+documentation = "https://docs.rs/veneer"
+repository = "https://github.com/saethlin/veneer"
+edition = "2018"
+include = ["src/**/*.rs", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dependencies]
+bitflags = "2"
+veneer-macros = { path = "veneer-macros" }
+sc = "0.2"
+
+[dev-dependencies]
+itoa = { version = "1", default-features = false }
+
+[features]
+rt = []
